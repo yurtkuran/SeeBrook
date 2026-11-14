@@ -34,6 +34,12 @@ This complements — and never overrides — the approved product constraints in
 | ED-18 | Git flow: feature → `develop` → `master` → production | Accepted | 2026-11-14 |
 | ED-19 | Repository layout: single Gradle build at root; `docs/` at root | Accepted | 2026-11-14 |
 | ED-20 | JDK distribution: Eclipse Temurin 21 everywhere | Accepted | 2026-11-14 |
+| ED-21 | Database module: central migrations and jOOQ codegen from SQL scripts | Accepted | 2026-11-14 |
+| ED-22 | PostgreSQL 18; local environment via Docker Compose and `scripts/dev.sh` | Accepted | 2026-11-14 |
+| ED-23 | Configuration via environment variables; explicit `SEEBROOK_ENV` | Accepted | 2026-11-14 |
+| ED-24 | Shared module starts JVM-only; iOS targets added at iOS project setup | Accepted | 2026-11-14 |
+| ED-25 | Dependency versions: version catalog, stable releases at least two weeks old | Accepted | 2026-11-14 |
+| ED-26 | Record identifiers: UUIDv7 primary keys; HOA-scoped composite references | Accepted | 2026-11-14 |
 
 ## Pending decisions
 
@@ -134,7 +140,7 @@ This complements — and never overrides — the approved product constraints in
 - **Rationale:** `AGENTS.md` git workflow.
 
 ## ED-13 — Logical services in one deployable backend
-- **Status:** Accepted · **Date:** 2026-11-13 · **Decided by:** project owner
+- **Status:** Accepted, amended by ED-21 · **Date:** 2026-11-13 · **Decided by:** project owner
 - **Context:** Owner prefers an API organized as logical services (identity, property, payment, …). `AGENTS.md` prefers one service and no speculative scaling; several requirements need atomic changes across domains (ownership transfer, GA-08; ledger invariants, GA-21).
 - **Decision:** One deployable Ktor backend made of logical services (a modular monolith). Each service is a Gradle module that owns its own PostgreSQL schema and exposes a public Kotlin interface. Other modules use only that interface — never another module's tables — enforced through Gradle module dependencies. Cross-service workflows that must be atomic run in a single database transaction.
 - **Service map (initial):**
@@ -250,6 +256,61 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Rationale:** Vendor-neutral, TCK-certified OpenJDK build; common default for GitHub Actions; hosting provider not yet chosen. Consistency across environments matters more than the vendor.
 - **Alternatives considered:** Amazon Corretto 21 — equivalent; preferable if hosting lands on AWS. Switching is a small, reversible build/CI change.
 
+## ED-21 — Database module: central migrations and jOOQ codegen
+- **Status:** Accepted · **Date:** 2026-11-14 · **Amends:** ED-13
+- **Context:** ED-13 gives each service its own PostgreSQL schema. Foreign keys cross schemas (e.g. `property.property` → `tenant.hoa`), so migrations need one global order, and jOOQ code generation needs the whole schema.
+- **Decision:**
+  - All Flyway migrations live in one module, `server:db` (`src/main/resources/db/migration`), with one sequential version series (`V1__tenant_hoa.sql`, `V2__property_property.sql`, …). Each file is prefixed with the owning service's schema name.
+  - Schema ownership from ED-13 is unchanged: each service reads and writes only its own schema's generated classes (`cc.seebrook.db.generated.<schema>`). An automated check enforcing this is added when the first service modules are created (M1).
+  - jOOQ classes are generated at build time with `DDLDatabase`, which parses the Flyway scripts — no database is needed to build. Generated code is not committed.
+  - PostgreSQL-specific statements jOOQ cannot simulate (regex checks, triggers, functions, later RLS policies) are wrapped in `-- [jooq ignore start]` / `-- [jooq ignore stop]`. They still run in PostgreSQL and are covered by integration tests.
+  - Strings that need unique indexes use `varchar(n)` rather than `text` (jOOQ simulates DDL in H2, which cannot index `text`). This also bounds input length at the database.
+- **Known gotchas:** a table with the same name as its schema generates as `PROPERTY_`; import it with an alias (`import …Tables.PROPERTY_ as PROPERTY`). Generated column defaults reflect H2 (e.g. `RANDOM_UUID()`); always let PostgreSQL apply defaults by omitting those columns in inserts.
+- **Alternatives considered:** Codegen against a live PostgreSQL via Testcontainers during the build — exact, but slower and needs Docker for every build; revisit if DDL simulation becomes limiting. Per-module migration folders — rejected because version numbers would collide and cross-schema ordering becomes fragile.
+
+## ED-22 — PostgreSQL 18 and local environment
+- **Status:** Accepted · **Date:** 2026-11-14
+- **Decision:**
+  - PostgreSQL 18 (`postgres:18-alpine`) for local development and Testcontainers tests; production hosting must provide 18.
+  - Local database via `infra/local/docker-compose.yml`, bound to `127.0.0.1:55432` (avoids clashing with any local PostgreSQL). Local-only credentials.
+  - `scripts/dev.sh` is the one-command startup: start the database, build, migrate, load synthetic data, serve on `http://localhost:8088` (8080 is commonly taken). `scripts/dev.sh down` stops the database; `reset` also deletes its data.
+- **Alternatives considered:** PostgreSQL 17 — also fine; 18 chosen for the longer support window. Running the app in Docker Compose too — slower edit/run loop; unnecessary for now.
+
+## ED-23 — Configuration and environments
+- **Status:** Accepted · **Date:** 2026-11-14
+- **Decision:**
+  - Configuration comes from environment variables: `SEEBROOK_ENV` (`development` | `test` | `production`, **required, no default**), `SEEBROOK_DB_URL`, `SEEBROOK_DB_USER`, `SEEBROOK_DB_PASSWORD`, `SEEBROOK_HTTP_PORT` (default 8080), `SEEBROOK_MIGRATE_ON_START`.
+  - Local database defaults apply only in `development`. Outside development, missing database settings stop startup.
+  - Migrations run on start by default only in `development`; in production they run as an explicit deploy step (`seebrook migrate`).
+  - The database password is never included in logs or `toString()`; HTTP request logs record method, path and status only.
+  - One executable with commands: `serve` (default), `migrate`, `seed-dev`. `seed-dev` loads synthetic Channel Harbor data (ED-11), is idempotent, and refuses to run in production. It is a development tool, not an administrative action — real provisioning and imports are audited actions (ED-14).
+- **Rationale:** An explicit environment prevents a production deployment from silently using development defaults or loading sample data.
+
+## ED-24 — Shared module starts JVM-only
+- **Status:** Accepted · **Date:** 2026-11-14
+- **Decision:** `shared/` uses the Kotlin Multiplatform plugin with a JVM target only for now; it is consumed by the backend. iOS targets (`iosArm64`, `iosSimulatorArm64`) and the XCFramework build are added when the iOS project is set up. Android can consume the JVM target until an Android target is added (ED-16).
+- **Rationale:** Avoids downloading the Kotlin/Native toolchain and building iOS binaries on every backend build before any iOS code exists; adding targets later is a build change, not a restructuring.
+
+## ED-25 — Dependency versions
+- **Status:** Accepted · **Date:** 2026-11-14
+- **Decision:** All library and plugin versions are declared in `gradle/libs.versions.toml`. Use stable releases (no alpha/beta/RC/milestone) published at least two weeks before adoption. GitHub Actions are pinned to exact release tags.
+- **Initial versions (M0):** Kotlin 2.4.21, Ktor 3.6.1, jOOQ 3.21.9, Flyway 13.12.0, PostgreSQL JDBC 42.7.14, HikariCP 7.1.0, kotlinx.serialization 1.12.0, Logback 1.6.6, JUnit 6.1.3, Kotest 6.2.6, Testcontainers 2.0.5, Gradle 9.8.2.
+- **Rationale:** Reproducible builds; a short delay avoids adopting releases with undiscovered regressions.
+
+## ED-26 — Record identifiers
+- **Status:** Accepted · **Date:** 2026-11-14 · **Decided by:** project owner
+- **Decision:**
+  1. **Primary keys are UUIDv7** (`uuid PRIMARY KEY DEFAULT uuidv7()`, native in PostgreSQL 18). The application may generate the ID itself when it must know it before insert (e.g. linking an outbox job or idempotency record in the same transaction).
+  2. **IDs are not a security boundary.** Unguessable IDs are defense in depth only; every request is authorized server-side (GA-06).
+  3. **Business identifiers are separate columns** with their own scoped unique constraints, never reused as primary keys: unit label per HOA, external import property/transaction IDs (GA-14, GA-20), processor payment/event IDs per merchant (GA-17).
+  4. **Human-facing references are separate** (e.g. receipt `CH-2026-000123`), designed with the feature that needs them; users never see raw UUIDs.
+  5. **Secrets are never IDs.** Invitation and similar tokens are separate high-entropy random values, stored hashed; a UUIDv7 (which embeds a timestamp) is never used as a token.
+  6. **HOA-scoped references.** Tenant-owned tables carry `hoa_id`. Parent tables expose `UNIQUE (hoa_id, id)`, and children reference them with a composite foreign key — e.g. `FOREIGN KEY (hoa_id, property_id) REFERENCES property.property (hoa_id, id)` — so the database rejects any row linking to another HOA's record (GA-06 defense in depth). `tenant.hoa` itself is the root and is referenced by `id`.
+  7. **API representation:** IDs travel as canonical UUID strings.
+- **Rationale:** Unguessable and generatable anywhere like UUIDv4, but time-ordered for compact, insert-friendly indexes on large tables (ledger, audit, events); composite references make cross-tenant data corruption impossible at the database level.
+- **Alternatives considered:** `bigint` identity — guessable, reveals counts, database-only generation. UUIDv4 — random index writes, not sortable. ULID/Snowflake — non-standard types and custom generation.
+- **Consequences:** A UUIDv7 reveals its creation time to anyone who sees it (acceptable; records already carry dates). Ordering is guaranteed only within one database session. One extra unique index per HOA-scoped parent table.
+
 ---
 
 ## Change log
@@ -259,3 +320,5 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-14 — Added ED-17 (backend-owned business logic, thin clients) with client-side exceptions register X-01–X-05. Marked ED-08 and ED-15 as amended by ED-17.
 - 2026-11-14 — Added ED-18 (git flow, supersedes ED-12) and ED-19 (repository layout; docs moved from `documentation/docs/` to `docs/`). Added pending items: auth build-vs-buy, email provider, account deletion vs retention, privacy policy/terms, legal entity, admin operators, future web client.
 - 2026-11-14 — Added ED-20 (Temurin 21 JDK).
+- 2026-11-14 — M0: added ED-21 (central migrations and jOOQ codegen; amends ED-13), ED-22 (PostgreSQL 18, local environment), ED-23 (configuration and environments), ED-24 (JVM-only shared module for now), ED-25 (dependency version policy).
+- 2026-11-14 — Added ED-26 (UUIDv7 primary keys, separate business/human identifiers, HOA-scoped composite references).

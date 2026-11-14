@@ -4,6 +4,18 @@ HOA mobile app — membership, document library, dues and payments. Pilot: Chann
 
 Start with [`docs/README.md`](docs/README.md) for the product handoff and [`docs/ENGINEERING_DECISIONS.md`](docs/ENGINEERING_DECISIONS.md) for engineering choices. Contributor and agent rules are in [`AGENTS.md`](AGENTS.md).
 
+## Quick start
+
+Prerequisites: Eclipse Temurin JDK 21, Docker.
+
+```bash
+scripts/dev.sh            # start PostgreSQL, migrate, load synthetic Channel Harbor data, serve on :8088
+curl localhost:8088/health/ready
+scripts/dev.sh down       # stop the local database (scripts/dev.sh reset also deletes its data)
+
+./gradlew build           # compile and run all tests (Testcontainers needs Docker)
+```
+
 ## Repository layout
 
 ```
@@ -16,12 +28,14 @@ Start with [`docs/README.md`](docs/README.md) for the product handoff and [`docs
 ├── shared/                 Kotlin Multiplatform: API client, DTOs, input checks (ED-08, ED-15, ED-17)
 ├── server/                 Kotlin/Ktor backend — one deployable (ED-13)
 │   ├── app/                Entry point, HTTP routes, admin CLI
-│   ├── platform/           Audit, outbox, authorization context, DB access
+│   ├── platform/           Configuration, DB access; later audit, outbox, authorization context
+│   ├── db/                 Flyway migrations and generated jOOQ classes (ED-21)
 │   └── <service>/          tenant, identity, property, ledger, assessment, payment, document
 ├── mobile-ios/             SwiftUI app (built first, ED-16)
 ├── mobile-android/         Jetpack Compose app (after iOS)
 ├── webapp/                 Reserved: future web client/admin portal (not in pilot scope)
 ├── infra/                  Local dev (Docker Compose) and deployment configuration
+├── scripts/                Developer scripts (dev.sh)
 └── .github/workflows/      CI/CD
 ```
 

@@ -36,6 +36,7 @@
 
 - Work only on non-protected branches. Never commit directly to `master`, or `develop`.
 - Branch flow: `feature/*` from `develop` → PR → `develop` → production release PR → `master` → CI/CD → production.
+- GitHub branch protection is unavailable on the current plan; local hooks in `.githooks/` block direct commits and pushes to `develop` and `master`. Never bypass them with `--no-verify`.
 - Verify the current branch before committing. If on a protected branch, ask the user how to proceed.
 - Never commit changes without explicit user authorization.
 - When changes are ready, provide a proposed commit title and description for review.

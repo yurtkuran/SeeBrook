@@ -1,0 +1,17 @@
+#!/bin/sh
+# Blocks commits made directly on protected branches (ED-18, ED-27).
+# Enable once per clone:  git config core.hooksPath .githooks
+# Emergency bypass:       git commit --no-verify
+
+branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null)
+
+case "$branch" in
+  develop|master)
+    echo "✋ Direct commits to '$branch' are not allowed." >&2
+    echo "   Create a feature branch from develop and open a pull request:" >&2
+    echo "     git switch -c feature/<name>" >&2
+    exit 1
+    ;;
+esac
+
+exit 0

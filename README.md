@@ -18,6 +18,21 @@ scripts/dev.sh down       # stop the local database (scripts/dev.sh reset also d
 ./gradlew build           # compile and run all tests (Testcontainers needs Docker)
 ```
 
+### Try sign-in locally (M1)
+
+Locally the server accepts development tokens instead of Firebase tokens (ED-29). With `scripts/dev.sh` running, in another terminal:
+
+```bash
+export SEEBROOK_ENV=development
+APP=server/app/build/install/seebrook/bin/seebrook
+INVITE=$($APP dev-invite "Unit 07" owner07@example.test | tail -1)   # invitation token
+TOKEN=$($APP dev-token owner07@example.test)                         # signed-in owner
+
+curl -s localhost:8088/v1/invitations/accept -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d "{\"token\":\"$INVITE\"}"
+curl -s localhost:8088/v1/me/properties -H "Authorization: Bearer $TOKEN"     # only Unit 07
+```
+
 ## Repository layout
 
 ```

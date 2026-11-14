@@ -2,6 +2,7 @@ package cc.seebrook.platform.config
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
 import org.junit.jupiter.api.Test
@@ -44,6 +45,7 @@ class AppConfigTest {
                 "SEEBROOK_DB_URL" to "jdbc:postgresql://db/seebrook",
                 "SEEBROOK_DB_USER" to "app",
                 "SEEBROOK_DB_PASSWORD" to "s3cret-value",
+                "SEEBROOK_FIREBASE_PROJECT_ID" to "seebrook-prod",
             ),
         )
         config.migrateOnStart shouldBe false
@@ -60,5 +62,45 @@ class AppConfigTest {
         shouldThrow<ConfigException> {
             AppConfig.fromEnvironment(mapOf("SEEBROOK_ENV" to "development", "SEEBROOK_HTTP_PORT" to "99999"))
         }
+    }
+
+    private val productionDb = mapOf(
+        "SEEBROOK_ENV" to "production",
+        "SEEBROOK_DB_URL" to "jdbc:postgresql://db/seebrook",
+        "SEEBROOK_DB_USER" to "app",
+        "SEEBROOK_DB_PASSWORD" to "s3cret-value",
+    )
+
+    @Test
+    fun `development defaults to development auth`() {
+        val config = AppConfig.fromEnvironment(mapOf("SEEBROOK_ENV" to "development"))
+        config.auth.shouldBeInstanceOf<AuthConfig.Development>().projectId shouldBe "seebrook-dev"
+    }
+
+    @Test
+    fun `production uses Firebase auth with an explicit project`() {
+        val config = AppConfig.fromEnvironment(productionDb + ("SEEBROOK_FIREBASE_PROJECT_ID" to "seebrook-prod"))
+        config.auth shouldBe AuthConfig.Firebase("seebrook-prod")
+    }
+
+    @Test
+    fun `production requires a Firebase project ID`() {
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(productionDb) }
+            .message shouldContain "SEEBROOK_FIREBASE_PROJECT_ID"
+    }
+
+    @Test
+    fun `production refuses development auth`() {
+        shouldThrow<ConfigException> {
+            AppConfig.fromEnvironment(productionDb + ("SEEBROOK_AUTH_MODE" to "development"))
+        }.message shouldContain "not allowed in production"
+    }
+
+    @Test
+    fun `development auth secret is never rendered`() {
+        val config = AppConfig.fromEnvironment(
+            mapOf("SEEBROOK_ENV" to "development", "SEEBROOK_DEV_AUTH_SECRET" to "x".repeat(40)),
+        )
+        config.auth.toString() shouldNotContain "x".repeat(40)
     }
 }

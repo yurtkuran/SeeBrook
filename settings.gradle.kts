@@ -18,5 +18,7 @@ include(
     ":shared",
     ":server:db",
     ":server:platform",
+    ":server:property",
+    ":server:identity",
     ":server:app",
 )

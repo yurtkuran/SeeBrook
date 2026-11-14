@@ -4,6 +4,8 @@
 
 - Optimize for the 32-unit pilot. Favor simple, reliable, testable, and reversible solutions.
 - Treat `docs/REQUIREMENTS.md` and `docs/DECISIONS.md` as approved product constraints. Treat architecture and schema proposals as suggestions, not binding decisions.
+- Record every engineering decision (new or changed) in `docs/ENGINEERING_DECISIONS.md` in the same change that introduces it. Never rewrite past entries; supersede them.
+- Keep business logic in the backend. Mobile clients and the KMP shared module present data and collect input only. Any client-side logic beyond presentation must be justified and added to the exceptions register in `ENGINEERING_DECISIONS.md` (ED-17).
 - Implement one roadmap milestone at a time, delivering a runnable demo, applicable migrations, tests, and concise PR notes.
 - Prefer one service, one relational database, private object storage, and simple background jobs. Avoid message brokers, unnecessary abstractions, and speculative scaling.
 - Use secure backend tooling for initial administration. A financial administration portal is planned before onboarding additional HOAs, but is not required for the initial beta.
@@ -33,6 +35,7 @@
 ## Git Workflow and Commit Conventions
 
 - Work only on non-protected branches. Never commit directly to `master`, or `develop`.
+- Branch flow: `feature/*` from `develop` → PR → `develop` → production release PR → `master` → CI/CD → production.
 - Verify the current branch before committing. If on a protected branch, ask the user how to proceed.
 - Never commit changes without explicit user authorization.
 - When changes are ready, provide a proposed commit title and description for review.

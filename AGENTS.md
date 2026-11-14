@@ -49,6 +49,10 @@
   - `[security]` — Security-related changes.
   - `[docs]` — Documentation changes.
   - `[chore]` — Maintenance, dependencies, or tooling.
-- Commit descriptions should summarize the changes and explain their purpose, emphasizing why rather than merely what.
+- Commit descriptions must be concise bullet points (not prose paragraphs) that summarize the changes and explain their purpose, emphasizing why rather than merely what. Pull request descriptions use the same bullet style.
 - Do not include unrelated changes in a commit.
 - Never push changes to a remote repository without explicit authorization.
+- Pull requests:
+  - After the user approves a commit, push the feature branch and create the pull request into `develop` with `gh pr create`; that approval covers pushing the feature branch.
+  - The user reviews and merges all pull requests. Never merge, approve, or close a pull request.
+  - Create production release pull requests (`develop` → `master`) only when the user asks.

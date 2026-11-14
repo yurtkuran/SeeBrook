@@ -4,7 +4,7 @@
 - Invitation-only onboarding based on HOA-preverified ownership, initial owner/property CSV. Invitation single-use, expiring, bound to verified email and property; states pending/accepted/expired/revoked; manual resend/revoke.
 - Multiple separate owners per property and multiple properties/HOAs per user supported in data model, though pilot has no co-owned units.
 - Email/password, Apple/Google authentication; biometric convenience where feasible. Homeowner edits own name, verified email, phone, notification preferences; admins control ownership, address, financial identifiers.
-- HOA-scoped combinable Membership Admin, Document Admin, Financial Admin, HOA Admin; platform Root has cross-HOA authority. Root requires MFA, sensitive-action reauthentication, controlled grants and full audit; HOA Admin cannot grant Root or remove last HOA Admin.
+- HOA-scoped combinable Membership Admin, Document Admin, Financial Admin, HOA Admin; platform Root has cross-HOA authority. Root requires MFA (deferred until a second HOA joins the beta — GA-04 amendment, ED-28), sensitive-action reauthentication, controlled grants and full audit; HOA Admin cannot grant Root or remove last HOA Admin.
 - Authorized Membership Admin/HOA Admin/Root changes ownership only after verifying HOA evidence, entering reason, reviewing affected associations; audit actor, old/new values, time.
 - Transfer atomically revokes property access and pending invitations, preserves financial history and unaffected properties, durably requests cancellation of departing owner's recurring charges. Reconcile in-flight payments; do not indefinitely block transfer on processor outage.
 - Repeatable audited HOA provisioning script and time-limited initial HOA admin invitation; no shared passwords.

@@ -41,17 +41,18 @@ This complements — and never overrides — the approved product constraints in
 | ED-25 | Dependency versions: version catalog, stable releases at least two weeks old | Accepted | 2026-11-14 |
 | ED-26 | Record identifiers: UUIDv7 primary keys; HOA-scoped composite references | Accepted | 2026-11-14 |
 | ED-27 | Protected branches enforced by local git hooks (no GitHub branch protection) | Accepted | 2026-11-14 |
+| ED-28 | Authentication: Firebase Auth (identity only); authorization in our database; Root MFA deferred | Accepted | 2026-11-14 |
 
 ## Pending decisions
 
 | Topic | Needed by | Current default / notes |
 |---|---|---|
 | Hosting provider | M1 (before first deploy) | Low-cost managed PostgreSQL + single service; escalate only material cost/security differences |
-| Identity / auth provider — build vs buy | M1 | Must support verified email, invitations, Apple/Google sign-in, Root MFA (GA-04). Options: managed (Firebase Auth, Auth0, Clerk, Supabase Auth), self-hosted Keycloak, or in-house. Short comparison to be presented at M1 start |
+| Root MFA (Identity Platform upgrade) | Before a second HOA joins the beta | Deferred by owner (GA-04 amendment, ED-28). Upgrade the Firebase project to Identity Platform and enforce TOTP for Root |
 | Transactional email provider | M1 / M2 (invitations) | e.g. Postmark, SES, Resend; send from `seebrook.cc` with SPF/DKIM/DMARC |
 | Account deletion vs financial record retention | Before App Store submission | App Store requires in-app account deletion; financial history must be retained. Proposed: delete/anonymize identity and contact data, retain ledger and audit records. Owner approval + legal check — user-facing/legal |
 | Privacy policy and terms of service | Before App Store submission | Required by the App Store; decide author and publisher (Seebrook vs HOA) — legal |
-| Legal entity / account ownership | Before developer accounts and processor setup | Who owns developer accounts, domain, platform and processor relationship (individual, company or HOA) — owner to decide |
+| Legal entity / account ownership | Before developer accounts, the production Firebase project and processor setup | Who owns developer accounts, domain, Firebase/Google Cloud project, platform and processor relationship (individual, company or HOA) — owner to decide |
 | Admin operators and Root holders | M2 | Who runs backend admin commands for the pilot (owner vs board member); determines CLI authentication and Root vs HOA Admin assignment — owner to decide |
 | Future web client (`webapp/`) | After pilot | Folder reserved; not in pilot scope. Likely the financial administration portal required before a second HOA |
 | Private object storage provider | M3 | S3-compatible, private bucket, signed URLs; usually follows hosting choice |
@@ -322,6 +323,23 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Limitations:** Opt-in per clone; does not prevent edits through the GitHub web UI; can be bypassed with `--no-verify` (reserved for genuine emergencies by the owner).
 - **Revisit:** Enable GitHub branch protection (require PR and passing "Build and test", block force-push and deletion) if the plan is upgraded (e.g. GitHub Pro) or the repository becomes public; keep the hooks as a local early warning.
 
+## ED-28 — Authentication: Firebase Auth for identity only
+- **Status:** Accepted · **Date:** 2026-11-14 · **Decided by:** project owner · **Related:** GA-04, GA-05, GA-07, ED-17, ED-26
+- **Context:** M1 needs owner sign-in with verified email, email/password, and Apple/Google sign-in. Building password storage, resets, verification and abuse protection in-house is high-risk work for a 32-unit pilot.
+- **Decision:**
+  1. **Firebase Authentication (basic tier) proves identity only.** Enabled sign-in methods: email/password with email verification, Sign in with Apple, Google. No other Firebase products are enabled. The basic tier needs no billing account; its daily email quotas (verification, password reset) are far above pilot needs.
+  2. **Authorization stays in our database.** Invitations (single-use, expiring, bound to email and property — GA-05), roles, HOA membership and property access live in our schema and are checked on every request, so ownership changes revoke access on the next request (GA-07) regardless of token lifetime.
+  3. **Our user record is authoritative.** Users have our own UUIDv7 ID (ED-26); the Firebase UID is stored as an external identity (provider + subject), never used as our primary key or foreign key.
+  4. **The backend only verifies tokens.** Ktor verifies Firebase ID tokens locally (signature against Google's published keys, issuer, audience = project ID, expiry, verified email). No Firebase Admin SDK is needed for verification. Issuer and audience are configuration, so a different OIDC provider can be added later.
+  5. **Sensitive-action reauthentication (GA-04) without MFA:** sensitive actions require a recent sign-in, checked server-side from the token's `auth_time`. Session revocation is server-side: our database disables the user, and Firebase refresh tokens are revoked.
+  6. **Root MFA deferred (owner amendment to GA-04):** until a second HOA joins the beta, Root does not require MFA. Interim controls: Root holders kept to the minimum; initial Root operations use secure backend tooling, not the app; Root sign-in uses Apple/Google (with that account's own 2-step verification) or a strong unique password; recent-sign-in check and full audit on every Root action.
+  7. **Local development and tests:** the Firebase Auth Emulator for manual runs; automated tests sign tokens with a test key. Emulator/test token acceptance is only possible when `SEEBROOK_ENV` is `development` or `test`.
+- **Rationale:** Covers every pilot requirement at no cost, with native iOS and Android SDKs (ED-15, ED-16), standard tokens, and nothing extra to host. Identity Platform is the same service with MFA and enterprise features and can be enabled in place later without user migration.
+- **Alternatives considered:** Google Identity Platform from day one (only needed for MFA, now deferred). Keycloak self-hosted in Docker (best standards fit and no vendor, but another service to host and patch, and a browser-sheet login on iOS). Appwrite (a full backend platform; tokens validated by calling its API). Auth0, Clerk, Supabase Auth, AWS Cognito. Building in-house (rejected: highest security risk).
+- **Exit path (if leaving Firebase):** export users with `firebase auth:export` (includes password hashes in Firebase's modified scrypt format and the hash parameters); import into a provider that accepts that format, or migrate lazily at next sign-in, or as a last resort require password resets. Apple and Google identities (stable `sub` per app/team) re-link by subject. The backend accepts both issuers during the transition; the iOS app ships an update with the new sign-in SDK behind its small authentication interface. Our user IDs, roles and data do not change.
+- **Consequences:** Dependency on Google for sign-in availability. The production Firebase project should be owned by the pending legal entity. A transactional email provider is still needed for invitations.
+- **Revisit:** Before a second HOA joins the beta: upgrade to Identity Platform, enforce TOTP MFA for Root, and require a second factor in the token for Root actions.
+
 ---
 
 ## Change log
@@ -334,3 +352,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-14 — M0: added ED-21 (central migrations and jOOQ codegen; amends ED-13), ED-22 (PostgreSQL 18, local environment), ED-23 (configuration and environments), ED-24 (JVM-only shared module for now), ED-25 (dependency version policy).
 - 2026-11-14 — Added ED-26 (UUIDv7 primary keys, separate business/human identifiers, HOA-scoped composite references).
 - 2026-11-14 — Added ED-27 (local git hooks in place of unavailable GitHub branch protection).
+- 2026-11-14 — Added ED-28 (Firebase Auth for identity only; authorization in our database; Root MFA deferred by owner until a second HOA joins the beta). Resolved the auth provider pending item; added a pending item for the Identity Platform/MFA upgrade; amended GA-04 in `DECISIONS.md` and `REQUIREMENTS.md`.

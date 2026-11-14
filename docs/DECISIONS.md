@@ -4,7 +4,7 @@
 | GA-01 | Audited repeatable backend HOA provisioning. |
 | GA-02 | Single-use invitation for initial HOA admin, scoped privileges only upon acceptance. |
 | GA-03 | Root platform-wide; HOA Admin tenant-scoped, cannot grant Root or remove last HOA Admin. |
-| GA-04 | Root MFA, sensitive reauth, controlled grants, recovery and session revocation. |
+| GA-04 | Root MFA, sensitive reauth, controlled grants, recovery and session revocation. **Amended 2026-11-14 by owner:** Root MFA is deferred until a second HOA joins the beta; the other GA-04 controls are unchanged (see ED-28). |
 | GA-05 | Preverified ownership; email/property-bound invitation; invalidate on ownership change. |
 | GA-06 | Defense-in-depth tenant isolation across DB/API/storage/jobs/payments. |
 | GA-07 | Immediate property-specific access revocation, retain unaffected property access. |

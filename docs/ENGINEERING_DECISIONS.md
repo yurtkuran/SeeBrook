@@ -40,6 +40,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-24 | Shared module starts JVM-only; iOS targets added at iOS project setup | Accepted | 2026-11-14 |
 | ED-25 | Dependency versions: version catalog, stable releases at least two weeks old | Accepted | 2026-11-14 |
 | ED-26 | Record identifiers: UUIDv7 primary keys; HOA-scoped composite references | Accepted | 2026-11-14 |
+| ED-27 | Protected branches enforced by local git hooks (no GitHub branch protection) | Accepted | 2026-11-14 |
 
 ## Pending decisions
 
@@ -311,6 +312,16 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Alternatives considered:** `bigint` identity — guessable, reveals counts, database-only generation. UUIDv4 — random index writes, not sortable. ULID/Snowflake — non-standard types and custom generation.
 - **Consequences:** A UUIDv7 reveals its creation time to anyone who sees it (acceptable; records already carry dates). Ordering is guaranteed only within one database session. One extra unique index per HOA-scoped parent table.
 
+## ED-27 — Protected branches via local git hooks
+- **Status:** Accepted · **Date:** 2026-11-14 · **Decided by:** project owner · **Related:** ED-18
+- **Context:** ED-18 recommended GitHub branch protection for `develop` and `master`. The current GitHub plan does not offer branch protection or rulesets for this private repository.
+- **Decision:**
+  - Versioned hooks in `.githooks/`: `pre-commit` rejects commits on `develop` or `master`; `pre-push` rejects pushes to them. Merges performed on GitHub through pull requests are unaffected.
+  - Each clone enables them once with `git config core.hooksPath .githooks` (documented in the README quick start).
+  - `AGENTS.md` forbids agents from committing to protected branches or bypassing the hooks with `--no-verify`. CI still runs on every PR and on pushes to `develop`/`master`, so a direct push would at least be tested.
+- **Limitations:** Opt-in per clone; does not prevent edits through the GitHub web UI; can be bypassed with `--no-verify` (reserved for genuine emergencies by the owner).
+- **Revisit:** Enable GitHub branch protection (require PR and passing "Build and test", block force-push and deletion) if the plan is upgraded (e.g. GitHub Pro) or the repository becomes public; keep the hooks as a local early warning.
+
 ---
 
 ## Change log
@@ -322,3 +333,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-14 — Added ED-20 (Temurin 21 JDK).
 - 2026-11-14 — M0: added ED-21 (central migrations and jOOQ codegen; amends ED-13), ED-22 (PostgreSQL 18, local environment), ED-23 (configuration and environments), ED-24 (JVM-only shared module for now), ED-25 (dependency version policy).
 - 2026-11-14 — Added ED-26 (UUIDv7 primary keys, separate business/human identifiers, HOA-scoped composite references).
+- 2026-11-14 — Added ED-27 (local git hooks in place of unavailable GitHub branch protection).

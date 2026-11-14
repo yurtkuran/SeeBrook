@@ -9,6 +9,8 @@ Start with [`docs/README.md`](docs/README.md) for the product handoff and [`docs
 Prerequisites: Eclipse Temurin JDK 21, Docker.
 
 ```bash
+git config core.hooksPath .githooks   # once per clone: blocks direct commits/pushes to develop and master
+
 scripts/dev.sh            # start PostgreSQL, migrate, load synthetic Channel Harbor data, serve on :8088
 curl localhost:8088/health/ready
 scripts/dev.sh down       # stop the local database (scripts/dev.sh reset also deletes its data)
@@ -43,4 +45,4 @@ scripts/dev.sh down       # stop the local database (scripts/dev.sh reset also d
 
 ## Branching
 
-`feature/*` → PR → `develop` → production release PR → `master` → CI/CD → production. Never commit directly to `develop` or `master` (ED-18).
+`feature/*` → PR → `develop` → production release PR → `master` → CI/CD → production. Never commit directly to `develop` or `master` (ED-18). GitHub branch protection is not available on the current plan, so local hooks in `.githooks/` enforce this once enabled (ED-27).

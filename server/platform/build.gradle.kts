@@ -8,6 +8,8 @@ dependencies {
     api(libs.jooq)
     api(libs.hikari)
     implementation(libs.nimbus.jose.jwt)
+    implementation(project(":server:db"))
+    api(libs.kotlinx.serialization.json)
     runtimeOnly(libs.postgresql)
 
     testImplementation(platform(libs.junit.bom))

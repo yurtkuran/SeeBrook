@@ -1,5 +1,7 @@
 package cc.seebrook.app
 
+import cc.seebrook.app.cli.AdminCommands
+import cc.seebrook.app.cli.CommandException
 import cc.seebrook.app.devtools.DevAuth
 import cc.seebrook.app.devtools.DevSeed
 import cc.seebrook.app.http.seebrookModule
@@ -22,7 +24,16 @@ private const val USAGE = """Usage: seebrook <command>
   seed-dev                   Apply migrations and load synthetic Channel Harbor data (development/test only).
   dev-invite <unit> <email>  Issue an owner invitation for a synthetic unit and print its token (development/test only).
   dev-token <email> [--unverified]
-                             Print a development ID token for <email> (development auth mode only)."""
+                             Print a development ID token for <email> (development auth mode only).
+
+Admin commands (audited; ED-31):
+  bootstrap-root --email <email>
+                             Create the first Root user. Refused once any Root exists.
+  grant-role  --operator <email> --user <email> --role <role> [--hoa <slug>] --reason <text>
+  revoke-role --operator <email> --user <email> --role <role> [--hoa <slug>] --reason <text>
+                             Roles: root (no --hoa), hoa_admin, membership_admin, document_admin, financial_admin."""
+
+private val ADMIN_COMMANDS = setOf("bootstrap-root", "grant-role", "revoke-role")
 
 private fun usage(): Nothing {
     System.err.println(USAGE)
@@ -32,10 +43,15 @@ private fun usage(): Nothing {
 fun main(args: Array<String>) {
     val command = args.firstOrNull() ?: "serve"
     val operands = args.drop(1)
+    if (command in setOf("help", "--help", "-h")) {
+        println(USAGE)
+        return
+    }
     when (command) {
         "serve", "migrate", "seed-dev" -> if (operands.isNotEmpty()) usage()
         "dev-invite" -> if (operands.size != 2) usage()
         "dev-token" -> if (operands.size !in 1..2 || (operands.size == 2 && operands[1] != "--unverified")) usage()
+        in ADMIN_COMMANDS -> {}
         else -> usage()
     }
 
@@ -68,6 +84,21 @@ fun main(args: Array<String>) {
                 val issued = DevAuth.invite(db, config.environment, operands[0], operands[1])
                 println("Invitation for ${operands[1]} to ${operands[0]} (expires ${issued.expiresAt}):")
                 println(issued.token)
+            }
+            in ADMIN_COMMANDS -> {
+                val admin = AdminCommands(db)
+                val output = try {
+                    when (command) {
+                        "bootstrap-root" -> admin.bootstrapRoot(operands)
+                        "grant-role" -> admin.grantRole(operands)
+                        else -> admin.revokeRole(operands)
+                    }
+                } catch (e: CommandException) {
+                    System.err.println("Error: ${e.message}")
+                    if (e.exitCode == 2) System.err.println(USAGE)
+                    exitProcess(e.exitCode)
+                }
+                println(output)
             }
             "serve" -> {
                 if (config.migrateOnStart) migrate(db)

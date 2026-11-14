@@ -1,0 +1,22 @@
+# Local development database only. Credentials here are for local use and must never be used elsewhere.
+name: seebrook-local
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: seebrook
+      POSTGRES_USER: seebrook
+      POSTGRES_PASSWORD: seebrook-dev
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seebrook -d seebrook"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:

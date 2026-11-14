@@ -1,5 +1,6 @@
 package cc.seebrook.app.http
 
+import cc.seebrook.app.support.TestAuth
 import cc.seebrook.app.support.TestPostgres
 import cc.seebrook.shared.api.HealthResponse
 import cc.seebrook.shared.api.HealthStatus
@@ -22,7 +23,7 @@ class HealthRoutesTest {
     fun `liveness reports up`() {
         TestPostgres.freshDatabase().use { db ->
             testApplication {
-                application { seebrookModule(db) }
+                application { seebrookModule(db, TestAuth.verifier) }
                 val response = jsonClient().get("/health/live")
 
                 response.status shouldBe HttpStatusCode.OK
@@ -35,7 +36,7 @@ class HealthRoutesTest {
     fun `readiness reports up when the database is reachable`() {
         TestPostgres.freshDatabase().use { db ->
             testApplication {
-                application { seebrookModule(db) }
+                application { seebrookModule(db, TestAuth.verifier) }
                 val response = jsonClient().get("/health/ready")
 
                 response.status shouldBe HttpStatusCode.OK
@@ -51,7 +52,7 @@ class HealthRoutesTest {
         db.close()
 
         testApplication {
-            application { seebrookModule(db) }
+            application { seebrookModule(db, TestAuth.verifier) }
             val response = jsonClient().get("/health/ready")
 
             response.status shouldBe HttpStatusCode.ServiceUnavailable

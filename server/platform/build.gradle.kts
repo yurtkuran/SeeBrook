@@ -7,6 +7,7 @@ plugins {
 dependencies {
     api(libs.jooq)
     api(libs.hikari)
+    implementation(libs.nimbus.jose.jwt)
     runtimeOnly(libs.postgresql)
 
     testImplementation(platform(libs.junit.bom))

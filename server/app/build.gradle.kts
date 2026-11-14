@@ -14,11 +14,14 @@ dependencies {
     implementation(project(":shared"))
     implementation(project(":server:db"))
     implementation(project(":server:platform"))
+    implementation(project(":server:property"))
+    implementation(project(":server:identity"))
 
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.netty)
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.server.status.pages)
+    implementation(libs.ktor.server.auth)
     implementation(libs.ktor.server.call.logging)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.kotlinx.serialization.json)
@@ -30,6 +33,7 @@ dependencies {
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.ktor.client.content.negotiation)
+    testImplementation(libs.nimbus.jose.jwt)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 

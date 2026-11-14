@@ -41,7 +41,9 @@ This complements — and never overrides — the approved product constraints in
 | ED-25 | Dependency versions: version catalog, stable releases at least two weeks old | Accepted | 2026-11-14 |
 | ED-26 | Record identifiers: UUIDv7 primary keys; HOA-scoped composite references | Accepted | 2026-11-14 |
 | ED-27 | Protected branches enforced by local git hooks (no GitHub branch protection) | Accepted | 2026-11-14 |
-| ED-28 | Authentication: Firebase Auth (identity only); authorization in our database; Root MFA deferred | Accepted | 2026-11-14 |
+| ED-28 | Authentication: Firebase Auth (identity only); authorization in our database; Root MFA deferred | Accepted, amended by ED-29 | 2026-11-14 |
+| ED-29 | Sign-in and invitation rules; development tokens instead of the Firebase emulator | Accepted | 2026-11-14 |
+| ED-30 | Automated schema-ownership check | Accepted | 2026-11-14 |
 
 ## Pending decisions
 
@@ -324,7 +326,7 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Revisit:** Enable GitHub branch protection (require PR and passing "Build and test", block force-push and deletion) if the plan is upgraded (e.g. GitHub Pro) or the repository becomes public; keep the hooks as a local early warning.
 
 ## ED-28 — Authentication: Firebase Auth for identity only
-- **Status:** Accepted · **Date:** 2026-11-14 · **Decided by:** project owner · **Related:** GA-04, GA-05, GA-07, ED-17, ED-26
+- **Status:** Accepted, amended by ED-29 (item 7) · **Date:** 2026-11-14 · **Decided by:** project owner · **Related:** GA-04, GA-05, GA-07, ED-17, ED-26
 - **Context:** M1 needs owner sign-in with verified email, email/password, and Apple/Google sign-in. Building password storage, resets, verification and abuse protection in-house is high-risk work for a 32-unit pilot.
 - **Decision:**
   1. **Firebase Authentication (basic tier) proves identity only.** Enabled sign-in methods: email/password with email verification, Sign in with Apple, Google. No other Firebase products are enabled. The basic tier needs no billing account; its daily email quotas (verification, password reset) are far above pilot needs.
@@ -340,6 +342,26 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Consequences:** Dependency on Google for sign-in availability. The production Firebase project should be owned by the pending legal entity. A transactional email provider is still needed for invitations.
 - **Revisit:** Before a second HOA joins the beta: upgrade to Identity Platform, enforce TOTP MFA for Root, and require a second factor in the token for Root actions.
 
+## ED-29 — Sign-in and invitation rules
+- **Status:** Accepted · **Date:** 2026-11-14 · **Amends:** ED-28 item 7 · **Related:** GA-05, GA-06, GA-07
+- **Decision:**
+  1. **Invitation acceptance requires a verified email equal to the invited email** (case-insensitive). A forwarded or leaked invitation is useless without control of that mailbox. Consequence: an owner using Sign in with Apple's "Hide My Email" must share their real email, or sign in with Google or email/password, to accept.
+  2. **Invitation tokens:** 256 random bits, URL-safe, stored only as a SHA-256 hash; valid for 14 days; single use. Reissuing revokes the earlier pending invitation for the same property and email (at most one pending per property and email, enforced by the database). Acceptance is idempotent for the account that accepted it, so a lost response can be retried safely; any other account gets `invitation_no_longer_valid`.
+  3. **Acceptance is atomic:** find or create the user, link the sign-in identity, start the ownership (through PropertyService) and mark the invitation used — in one transaction with the invitation row locked. A user who already exists is matched by their linked identity, otherwise by verified email (so the same person signing in with a second provider stays one user).
+  4. **Access is checked on every request** from our database: the token's identity is resolved to an active user, and property access requires an active ownership. Ending an ownership or disabling a user takes effect on the next request, even with a still-valid token (GA-07).
+  5. **Unknown and unauthorized properties both return 404 `not_found`**, so responses never reveal another owner's or HOA's property (GA-06).
+  6. **API paths are versioned (`/v1/...`)**, because installed app versions linger after API changes. Errors use `{"error": "<code>"}` with stable codes.
+  7. **Development tokens replace the Firebase Auth Emulator** (amends ED-28 item 7). With `SEEBROOK_AUTH_MODE=development` (the default outside production, refused in production), the server verifies Firebase-shaped HS256 tokens minted by `seebrook dev-token <email>`; `seebrook dev-invite <unit> <email>` issues an invitation for a synthetic unit. Same claim checks as production, no Node.js tooling or Firebase project needed. Automated tests use RS256 tokens from a test key through the production verifier.
+- **Configuration added (ED-23):** `SEEBROOK_AUTH_MODE` (`firebase` | `development`), `SEEBROOK_FIREBASE_PROJECT_ID` (required for `firebase`), `SEEBROOK_DEV_AUTH_SECRET` (optional, development only; never logged).
+- **Libraries:** Nimbus JOSE + JWT 10.10 for token verification (Google's keys are fetched and cached); Ktor `ktor-server-auth` for bearer authentication.
+- **Alternatives considered:** Treating token possession as proof of email (would let Apple relay emails accept, but a forwarded invitation would grant access) — rejected for security. Firebase Auth Emulator — needs Node.js tooling and issues unsigned tokens, so production verification code would not run locally.
+
+## ED-30 — Automated schema-ownership check
+- **Status:** Accepted · **Date:** 2026-11-14 · **Fulfils:** ED-21
+- **Decision:** A root Gradle task, `checkSchemaOwnership`, runs with every `check`/`build` (and so in CI). It fails if a service module's main code references another schema's generated jOOQ classes: `server:property` may use only `property`, `server:identity` only `identity`. `server:app` is the composition root and may use none; its `devtools/` (development data and tokens) are exempt. New service modules are added to the task's map when created.
+- **Cross-service calls:** a service needing another's data or change calls that service's public Kotlin API, passing the current transaction where atomicity is needed (e.g. invitation acceptance calls `Ownerships.grant` in its transaction).
+- **Alternatives considered:** Database roles per service — real enforcement, but needs separate connection pools and credentials; revisit if the check proves insufficient. An architecture-test library (Konsist, ArchUnit) — more machinery than a text check needs today.
+
 ---
 
 ## Change log
@@ -353,3 +375,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-14 — Added ED-26 (UUIDv7 primary keys, separate business/human identifiers, HOA-scoped composite references).
 - 2026-11-14 — Added ED-27 (local git hooks in place of unavailable GitHub branch protection).
 - 2026-11-14 — Added ED-28 (Firebase Auth for identity only; authorization in our database; Root MFA deferred by owner until a second HOA joins the beta). Resolved the auth provider pending item; added a pending item for the Identity Platform/MFA upgrade; amended GA-04 in `DECISIONS.md` and `REQUIREMENTS.md`.
+- 2026-11-14 — M1: added ED-29 (sign-in and invitation rules; development tokens instead of the Firebase emulator; amends ED-28 item 7) and ED-30 (automated schema-ownership check, fulfilling ED-21).

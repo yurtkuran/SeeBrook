@@ -44,6 +44,9 @@ This complements — and never overrides — the approved product constraints in
 | ED-28 | Authentication: Firebase Auth (identity only); authorization in our database; Root MFA deferred | Accepted, amended by ED-29 | 2026-11-14 |
 | ED-29 | Sign-in and invitation rules; development tokens instead of the Firebase emulator | Accepted | 2026-11-14 |
 | ED-30 | Automated schema-ownership check | Accepted | 2026-11-14 |
+| ED-31 | Pilot operators: owner is sole Root and operator; admin commands name their operator | Accepted | 2026-11-14 |
+| ED-32 | Roles and permissions | Accepted | 2026-11-14 |
+| ED-33 | Append-only audit trail | Accepted | 2026-11-14 |
 
 ## Pending decisions
 
@@ -55,7 +58,6 @@ This complements — and never overrides — the approved product constraints in
 | Account deletion vs financial record retention | Before App Store submission | App Store requires in-app account deletion; financial history must be retained. Proposed: delete/anonymize identity and contact data, retain ledger and audit records. Owner approval + legal check — user-facing/legal |
 | Privacy policy and terms of service | Before App Store submission | Required by the App Store; decide author and publisher (Seebrook vs HOA) — legal |
 | Legal entity / account ownership | Before developer accounts, the production Firebase project and processor setup | Who owns developer accounts, domain, Firebase/Google Cloud project, platform and processor relationship (individual, company or HOA) — owner to decide |
-| Admin operators and Root holders | M2 | Who runs backend admin commands for the pilot (owner vs board member); determines CLI authentication and Root vs HOA Admin assignment — owner to decide |
 | Future web client (`webapp/`) | After pilot | Folder reserved; not in pilot scope. Likely the financial administration portal required before a second HOA |
 | Private object storage provider | M3 | S3-compatible, private bucket, signed URLs; usually follows hosting choice |
 | Malware scanning approach | M3 | e.g. ClamAV in-process or provider service (GA-12) |
@@ -362,6 +364,41 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Cross-service calls:** a service needing another's data or change calls that service's public Kotlin API, passing the current transaction where atomicity is needed (e.g. invitation acceptance calls `Ownerships.grant` in its transaction).
 - **Alternatives considered:** Database roles per service — real enforcement, but needs separate connection pools and credentials; revisit if the check proves insufficient. An architecture-test library (Konsist, ArchUnit) — more machinery than a text check needs today.
 
+## ED-31 — Pilot operators and admin commands
+- **Status:** Accepted · **Date:** 2026-11-14 · **Decided by:** project owner · **Related:** GA-03, GA-04, ED-14, ED-28
+- **Decision:**
+  - **The project owner is the sole Root holder and the only operator** of admin commands for the pilot. Board members may receive HOA-scoped roles; they use them through the app or the future admin portal, not the command line.
+  - **The first Root is created with `seebrook bootstrap-root --email <email>`**, which works only while no active Root exists. Any further Root grant is an audited `grant-role` by an existing Root.
+  - **Every other admin command names its operator** (`--operator <email>`). The operator must be an active user; what they may do is decided by their roles in our database, through the same actions and checks as the API (ED-14). Every change is audited with the operator and channel `cli`.
+  - **Shell access to the environment is the outer control:** `--operator` identifies who acts but is not authentication. Until Root MFA arrives (GA-04 amendment, ED-28), production shell access must stay limited to the owner.
+- **Revisit:** Before a second HOA joins: authenticate operators (e.g. a short-lived token from a Root sign-in with MFA) instead of trusting `--operator`, or move administration to the admin portal.
+
+## ED-32 — Roles and permissions
+- **Status:** Accepted · **Date:** 2026-11-14 · **Related:** GA-03, ED-14
+- **Decision:** Roles map to permissions; actions check permissions, not role names.
+
+  | Role | Scope | Permissions |
+  |---|---|---|
+  | Root | Platform (every HOA) | All |
+  | HOA Admin | One HOA | Manage roles, manage membership |
+  | Membership Admin | One HOA | Manage membership |
+  | Document Admin | One HOA | Manage documents |
+  | Financial Admin | One HOA | Manage finances |
+
+  - Roles are combinable; a board member who needs documents and finances holds both roles.
+  - Only Root grants or revokes Root. Managing HOA roles needs "manage roles" in that HOA.
+  - An HOA Admin cannot remove the HOA's last HOA Admin; Root can, with a reason. The last Root can never be revoked.
+  - Every grant and revocation requires a reason (GA-04 "controlled grants") and is audited. Assignments are never deleted; revocation is recorded.
+  - Roles are read fresh from the database for each request or command, so a revocation applies immediately.
+  - Roles are granted only to existing users (users are created by accepting an invitation, or by `bootstrap-root`).
+- **Interpretation to confirm with the HOA:** the requirements list HOA Admin alongside the other roles without saying whether it includes document or financial administration. HOA Admin is kept to roles and membership; grant the other roles separately when needed.
+
+## ED-33 — Append-only audit trail
+- **Status:** Accepted · **Date:** 2026-11-14 · **Related:** GA-09, GA-15, GA-21
+- **Decision:** One `audit.event` table owned by the platform module: time, HOA (null for platform-wide), actor (null only for bootstrap), channel (`api`/`cli`/`system`), action name (`<service>.<event>`), target, reason and JSON details with before/after values. Written by `Audit.record` in the same transaction as the change, so a change and its record commit or roll back together. Database triggers reject UPDATE, DELETE and TRUNCATE.
+- **Never recorded:** secrets, tokens, passwords or payment credentials. Emails and names may be recorded where needed to identify the people affected.
+- **Alternatives considered:** Per-service audit tables — harder to review one HOA's history; database-trigger auditing of every table — captures rows but not the actor or reason.
+
 ---
 
 ## Change log
@@ -376,3 +413,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-14 — Added ED-27 (local git hooks in place of unavailable GitHub branch protection).
 - 2026-11-14 — Added ED-28 (Firebase Auth for identity only; authorization in our database; Root MFA deferred by owner until a second HOA joins the beta). Resolved the auth provider pending item; added a pending item for the Identity Platform/MFA upgrade; amended GA-04 in `DECISIONS.md` and `REQUIREMENTS.md`.
 - 2026-11-14 — M1: added ED-29 (sign-in and invitation rules; development tokens instead of the Firebase emulator; amends ED-28 item 7) and ED-30 (automated schema-ownership check, fulfilling ED-21).
+- 2026-11-14 — M2: added ED-31 (owner is sole Root and operator; admin commands), ED-32 (roles and permissions) and ED-33 (append-only audit trail). Resolved the admin operators pending item.

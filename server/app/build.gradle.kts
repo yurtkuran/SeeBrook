@@ -14,6 +14,7 @@ dependencies {
     implementation(project(":shared"))
     implementation(project(":server:db"))
     implementation(project(":server:platform"))
+    implementation(project(":server:tenant"))
     implementation(project(":server:property"))
     implementation(project(":server:identity"))
 

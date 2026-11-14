@@ -1,11 +1,26 @@
 package cc.seebrook.identity
 
 import cc.seebrook.db.generated.identity.Tables.EXTERNAL_IDENTITY
+import cc.seebrook.db.generated.identity.Tables.ROLE_ASSIGNMENT
 import cc.seebrook.db.generated.identity.Tables.USER_ACCOUNT
+import cc.seebrook.platform.auth.Channel
+import cc.seebrook.platform.auth.Role
+import cc.seebrook.platform.auth.RoleGrant
 import cc.seebrook.platform.auth.UserActor
 import cc.seebrook.platform.auth.VerifiedIdentity
 import cc.seebrook.platform.db.Database
+import org.jooq.DSLContext
 import java.util.UUID
+
+/** Active role assignments of [userId], read fresh for each request or command. */
+internal fun activeRoles(dsl: DSLContext, userId: UUID): Set<RoleGrant> =
+    dsl.select(ROLE_ASSIGNMENT.ROLE, ROLE_ASSIGNMENT.HOA_ID)
+        .from(ROLE_ASSIGNMENT)
+        .where(ROLE_ASSIGNMENT.USER_ID.eq(userId))
+        .and(ROLE_ASSIGNMENT.REVOKED_AT.isNull)
+        .fetch { row -> Role.fromCode(row.value1())?.let { RoleGrant(it, row.value2()) } }
+        .filterNotNull()
+        .toSet()
 
 /**
  * Maps a verified sign-in identity to our user on every request (ED-28). A disabled user is
@@ -26,10 +41,32 @@ class ResolveUser(private val db: Database) {
             .where(EXTERNAL_IDENTITY.PROVIDER.eq(identity.provider))
             .and(EXTERNAL_IDENTITY.SUBJECT.eq(identity.subject))
             .fetchOne() ?: return Result.NotRegistered
-        return when (row.value2()) {
-            UserStatus.ACTIVE -> Result.Active(UserActor(requireNotNull(row.value1())))
-            else -> Result.Disabled
-        }
+        if (row.value2() != UserStatus.ACTIVE) return Result.Disabled
+        val userId = requireNotNull(row.value1())
+        return Result.Active(UserActor(userId, activeRoles(db.dsl, userId), Channel.API))
+    }
+}
+
+/**
+ * Identifies the operator running an admin command (ED-31). The operator names themselves by
+ * email; what they may do is decided by their roles in our database, exactly as for the API.
+ * Shell access to the environment is the outer control.
+ */
+class ResolveOperator(private val db: Database) {
+    sealed interface Result {
+        data class Active(val actor: UserActor) : Result
+        data object NotFound : Result
+        data object Disabled : Result
+    }
+
+    operator fun invoke(email: String): Result {
+        val row = db.dsl.select(USER_ACCOUNT.ID, USER_ACCOUNT.STATUS)
+            .from(USER_ACCOUNT)
+            .where(USER_ACCOUNT.EMAIL.eq(EmailAddress.normalize(email)))
+            .fetchOne() ?: return Result.NotFound
+        if (row.value2() != UserStatus.ACTIVE) return Result.Disabled
+        val userId = requireNotNull(row.value1())
+        return Result.Active(UserActor(userId, activeRoles(db.dsl, userId), Channel.CLI))
     }
 }
 

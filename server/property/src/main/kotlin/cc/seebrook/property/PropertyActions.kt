@@ -6,6 +6,7 @@ import cc.seebrook.platform.db.Database
 import org.jooq.Condition
 import org.jooq.DSLContext
 import org.jooq.Record
+import org.jooq.impl.DSL
 import java.util.UUID
 import cc.seebrook.db.generated.property.Tables.PROPERTY_ as PROPERTY
 
@@ -74,4 +75,34 @@ object Ownerships {
             .set(OWNERSHIP.USER_ID, userId)
             .onConflictDoNothing()
             .execute() == 1
+
+    /**
+     * User IDs of the property's active owners. With [lock], the rows are locked until the
+     * transaction ends, so a concurrent acceptance or transfer of the same unit waits.
+     */
+    fun activeOwners(tx: DSLContext, hoaId: UUID, propertyId: UUID, lock: Boolean = false): Set<UUID> =
+        tx.select(OWNERSHIP.USER_ID).from(OWNERSHIP)
+            .where(OWNERSHIP.HOA_ID.eq(hoaId))
+            .and(OWNERSHIP.PROPERTY_ID.eq(propertyId))
+            .and(OWNERSHIP.ENDED_AT.isNull)
+            .let { if (lock) it.forUpdate() else it }
+            .fetch { requireNotNull(it.value1()) }
+            .toSet()
+
+    /**
+     * Ends these users' active ownership of the property now. History is kept: the row gets an
+     * end time and is never deleted (GA-07). Returns how many ownerships ended.
+     */
+    fun end(tx: DSLContext, hoaId: UUID, propertyId: UUID, userIds: Collection<UUID>): Int =
+        if (userIds.isEmpty()) {
+            0
+        } else {
+            tx.update(OWNERSHIP)
+                .set(OWNERSHIP.ENDED_AT, DSL.currentOffsetDateTime())
+                .where(OWNERSHIP.HOA_ID.eq(hoaId))
+                .and(OWNERSHIP.PROPERTY_ID.eq(propertyId))
+                .and(OWNERSHIP.USER_ID.`in`(userIds))
+                .and(OWNERSHIP.ENDED_AT.isNull)
+                .execute()
+        }
 }

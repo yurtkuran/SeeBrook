@@ -48,6 +48,8 @@ seebrook send-invitations --operator <email> --hoa channel-harbor [--unit "Unit 
 seebrook list-invitations --operator <email> --hoa channel-harbor
 seebrook resend-invitation --operator <email> --hoa channel-harbor --unit "Unit 07" --email <owner>
 seebrook revoke-invitation --operator <email> --hoa channel-harbor --unit "Unit 07" --email <owner> --reason "<why>"
+seebrook transfer-ownership --operator <email> --hoa channel-harbor --unit "Unit 07" --to <buyer>[,<co-buyer>]   # dry run
+seebrook transfer-ownership --operator <email> --hoa channel-harbor --unit "Unit 07" --to <buyer> --commit --reason "<why>"
 ```
 
 The server sends queued invitation emails in the background (`seebrook run-jobs` sends them without a server). Locally, every email is caught by Mailpit — open http://localhost:8025 to read it and copy the invitation code; nothing is sent to real addresses. In production, emails stay queued until email is configured (ED-35, ED-36).

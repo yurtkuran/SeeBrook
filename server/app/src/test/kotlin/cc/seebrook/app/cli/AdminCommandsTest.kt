@@ -61,7 +61,7 @@ class AdminCommandsTest {
     }
 
     @Test
-    fun `invitation commands dry run, queue, list, resend and revoke`() {
+    fun `invitation and transfer commands`() {
         Fixtures.hoa(db, "channel-harbor")
         commands.bootstrapRoot(listOf("--email", "root@example.test"))
         val file = kotlin.io.path.createTempFile(suffix = ".csv").toFile().apply {
@@ -83,5 +83,12 @@ class AdminCommandsTest {
         commands.revokeInvitation(one + listOf("--reason", "Sold")) shouldContain "Revoked"
         commands.listInvitations(who) shouldContain "revoked"
         shouldThrow<CommandException> { commands.resendInvitation(one) }.message shouldContain "No pending invitation"
+
+        val transfer = who + listOf("--unit", "Unit 1", "--to", "buyer@example.test, co-buyer@example.test")
+        commands.transferOwnership(transfer) shouldContain "Dry run"
+        shouldThrow<CommandException> { commands.transferOwnership(transfer + "--commit") }.exitCode shouldBe 2
+        commands.transferOwnership(transfer + listOf("--commit", "--reason", "Sale")) shouldContain
+            "New owners invited (sent separately): buyer@example.test, co-buyer@example.test"
+        commands.transferOwnership(transfer + listOf("--commit", "--reason", "Sale")) shouldContain "nothing changed"
     }
 }

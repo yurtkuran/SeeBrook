@@ -31,6 +31,16 @@ import java.util.UUID
  *  - an existing unit's details must match; units missing from the file are left alone;
  *  - re-running the same file, or any file whose changes are already applied, changes nothing.
  */
+/**
+ * Serializes owner imports and transfers within one HOA for the rest of the transaction, so each
+ * plans against data no other membership change is modifying.
+ */
+internal object MembershipLock {
+    fun acquire(tx: DSLContext, hoaId: UUID) {
+        tx.fetch("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "membership:$hoaId")
+    }
+}
+
 class ImportOwners(private val db: Database) {
     data class PlannedInvitation(val unitLabel: String, val email: String, val name: String?)
 
@@ -81,8 +91,8 @@ class ImportOwners(private val db: Database) {
             }
         }
         return db.transaction { tx ->
-            // One import per HOA at a time, so the plan cannot go stale before it is applied.
-            tx.fetch("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "owner-import:$hoaId")
+            // One membership change per HOA at a time, so the plan cannot go stale before it is applied.
+            MembershipLock.acquire(tx, hoaId)
             previousImport(tx, hoaId, checksum)?.let { return@transaction it }
             plan(tx, hoaId, rows).fold({ Result.Conflicts(it) }) { plan ->
                 val importId = apply(tx, actor, hoaId, fileName, checksum, plan)

@@ -7,6 +7,7 @@ import cc.seebrook.identity.ListInvitations
 import cc.seebrook.identity.ResendInvitation
 import cc.seebrook.identity.RevokeInvitation
 import cc.seebrook.identity.SendInvitations
+import cc.seebrook.identity.TransferOwnership
 import cc.seebrook.identity.ResolveOperator
 import cc.seebrook.identity.RevokeRole
 import cc.seebrook.platform.auth.Role
@@ -185,6 +186,34 @@ class AdminCommands(private val db: Database) {
             ListInvitations.Result.Forbidden -> throw CommandException("Operator may not manage membership in this HOA")
         }
     }
+
+    fun transferOwnership(args: List<String>): String {
+        val o = parseOptions(args.filter { it != "--commit" }, setOf("operator", "hoa", "unit", "to", "reason"))
+        val commit = "--commit" in args
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        val unit = o.required("unit")
+        val to = o.required("to").split(',').map { it.trim() }
+        return when (val result = TransferOwnership(db)(operator(o.required("operator")), hoaId, unit, to, commit, o["reason"])) {
+            is TransferOwnership.Result.Planned -> describe(result.plan, "Dry run — nothing was changed.") +
+                "\nRe-run with --commit --reason <text> to apply."
+            is TransferOwnership.Result.Transferred -> describe(result.plan, "Transferred.") +
+                if (result.plan.inviting.isEmpty()) "" else "\nSend the new invitations with: send-invitations --unit \"$unit\" --commit"
+            TransferOwnership.Result.NoChange -> "$unit already has exactly these owners or invitations; nothing changed"
+            TransferOwnership.Result.UnitNotFound -> throw CommandException("No unit '$unit' in this HOA")
+            is TransferOwnership.Result.InvalidEmail -> throw CommandException("'${result.email}' is not a valid email address", 2)
+            TransferOwnership.Result.NoNewOwners -> throw CommandException("--to needs at least one email address", 2)
+            TransferOwnership.Result.Forbidden -> throw CommandException("Operator may not manage membership in this HOA")
+            TransferOwnership.Result.ReasonRequired -> throw CommandException("--commit requires --reason (up to 1000 characters)", 2)
+        }
+    }
+
+    private fun describe(plan: TransferOwnership.Plan, heading: String): String = buildString {
+        appendLine("$heading ${plan.unitLabel}:")
+        appendLine("  Ownership ends for: ${plan.ending.ifEmpty { listOf("nobody") }.joinToString()}")
+        appendLine("  Invitations revoked: ${plan.revoking.ifEmpty { listOf("none") }.joinToString()}")
+        appendLine("  New owners invited (sent separately): ${plan.inviting.ifEmpty { listOf("none") }.joinToString()}")
+        appendLine("  Unchanged: ${plan.continuing.ifEmpty { listOf("nobody") }.joinToString()}")
+    }.trimEnd()
 
     private fun describe(plan: ImportOwners.Plan, heading: String): String = buildString {
         appendLine(heading)

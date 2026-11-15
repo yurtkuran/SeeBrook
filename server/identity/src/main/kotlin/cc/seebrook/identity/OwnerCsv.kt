@@ -26,7 +26,6 @@ object OwnerCsv {
     )
     const val MAX_BYTES = 1_048_576
     const val MAX_ROWS = 5_000
-    private val EMAIL = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
 
     sealed interface Parsed {
         data class Valid(val rows: List<OwnerRow>) : Parsed
@@ -110,7 +109,7 @@ object OwnerCsv {
 
         val email = value("owner_email")?.let(EmailAddress::normalize)
         val name = value("owner_name")
-        if (email != null && (email.length > 320 || !EMAIL.matches(email))) {
+        if (email != null && !EmailAddress.isValid(email)) {
             errors += RowError(line, "owner_email", "is not a valid email address")
         }
         if (name != null && name.length > 200) errors += RowError(line, "owner_name", "is longer than 200 characters")

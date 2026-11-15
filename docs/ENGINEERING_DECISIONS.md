@@ -42,11 +42,12 @@ This complements — and never overrides — the approved product constraints in
 | ED-26 | Record identifiers: UUIDv7 primary keys; HOA-scoped composite references | Accepted | 2026-11-14 |
 | ED-27 | Protected branches enforced by local git hooks (no GitHub branch protection) | Accepted | 2026-11-14 |
 | ED-28 | Authentication: Firebase Auth (identity only); authorization in our database; Root MFA deferred | Accepted, amended by ED-29 | 2026-11-14 |
-| ED-29 | Sign-in and invitation rules; development tokens instead of the Firebase emulator | Accepted | 2026-11-14 |
+| ED-29 | Sign-in and invitation rules; development tokens instead of the Firebase emulator | Accepted, amended by ED-34 | 2026-11-14 |
 | ED-30 | Automated schema-ownership check | Accepted | 2026-11-14 |
 | ED-31 | Pilot operators: owner is sole Root and operator; admin commands name their operator | Accepted | 2026-11-14 |
 | ED-32 | Roles and permissions | Accepted | 2026-11-14 |
 | ED-33 | Append-only audit trail | Accepted | 2026-11-14 |
+| ED-34 | Owner CSV import: additive, all-or-nothing, never transfers ownership | Accepted | 2026-11-14 |
 
 ## Pending decisions
 
@@ -399,6 +400,19 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Never recorded:** secrets, tokens, passwords or payment credentials. Emails and names may be recorded where needed to identify the people affected.
 - **Alternatives considered:** Per-service audit tables — harder to review one HOA's history; database-trigger auditing of every table — captures rows but not the actor or reason.
 
+## ED-34 — Owner CSV import
+- **Status:** Accepted · **Date:** 2026-11-14 · **Related:** GA-05, GA-09, GA-14, ED-13, ED-29
+- **Decision:**
+  - **Format:** UTF-8 CSV (RFC 4180, optional byte-order mark), header with exactly these columns in any order: `unit_label, address_line1, address_line2, city, state_code, postal_code, owner_email, owner_name`. One row per owner of a unit; a row with no owner describes only the property. Limits: 1 MiB, 5,000 rows.
+  - **Validation first, all-or-nothing:** every row is checked (required fields, lengths, two-letter state, ZIP or ZIP+4, email format; rows of one unit must agree; an owner may not repeat within a unit) and every problem is reported with its line and column. Any error rejects the file.
+  - **Additive and conservative:** missing units are created and each listed owner gets a pending, unsent invitation. A unit that already has owners or pending invitations must list exactly those owners, or the file is rejected as a conflict — changing ownership always goes through `TransferOwnership` with its reason and review (GA-09), never an import. An existing unit's details must match. Units not in the file are left alone.
+  - **Dry run by default:** `import-owners` shows what would change; `--commit --reason <text>` applies it in one transaction, re-planned under a per-HOA lock.
+  - **Idempotent:** each committed file is recorded (`identity.owner_import`, unique per HOA and SHA-256). Re-submitting it returns the earlier batch; any file whose changes are already applied creates nothing.
+  - **Authorization and audit:** requires "manage membership" in the HOA (ED-32); one audit event lists the file checksum, the units created and the invitations created.
+  - **Invitations start unsent** (amends ED-29 item 2): the token is created when the invitation is sent, so no usable token is stored before delivery, and the 14-day expiry starts at sending.
+  - **Ownership of the action:** `ImportOwners` lives in IdentityService (it creates invitations) and creates properties through PropertyService's public API in the same transaction (ED-13).
+- **Alternatives considered:** Full synchronization (removing owners missing from the file) — rejected: a typo or partial file would silently revoke access. Storing tokens at import — rejected: usable tokens would sit in the database before sending.
+
 ---
 
 ## Change log
@@ -414,3 +428,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-14 — Added ED-28 (Firebase Auth for identity only; authorization in our database; Root MFA deferred by owner until a second HOA joins the beta). Resolved the auth provider pending item; added a pending item for the Identity Platform/MFA upgrade; amended GA-04 in `DECISIONS.md` and `REQUIREMENTS.md`.
 - 2026-11-14 — M1: added ED-29 (sign-in and invitation rules; development tokens instead of the Firebase emulator; amends ED-28 item 7) and ED-30 (automated schema-ownership check, fulfilling ED-21).
 - 2026-11-14 — M2: added ED-31 (owner is sole Root and operator; admin commands), ED-32 (roles and permissions) and ED-33 (append-only audit trail). Resolved the admin operators pending item.
+- 2026-11-14 — M2: added ED-34 (owner CSV import; invitations start unsent, amending ED-29).

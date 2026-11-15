@@ -2,12 +2,15 @@ package cc.seebrook.app.cli
 
 import cc.seebrook.identity.BootstrapRoot
 import cc.seebrook.identity.GrantRole
+import cc.seebrook.identity.ImportOwners
 import cc.seebrook.identity.ResolveOperator
 import cc.seebrook.identity.RevokeRole
 import cc.seebrook.platform.auth.Role
 import cc.seebrook.platform.auth.UserActor
 import cc.seebrook.platform.db.Database
 import cc.seebrook.tenant.FindHoa
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.UUID
 
 /** Admin command failed for a reason the operator can fix; printed without a stack trace. */
@@ -84,4 +87,44 @@ class AdminCommands(private val db: Database) {
             RevokeRole.Result.ReasonRequired -> throw CommandException("--reason is required (up to 1000 characters)", 2)
         }
     }
+
+    fun importOwners(args: List<String>): String {
+        val o = parseOptions(args.filter { it != "--commit" }, setOf("operator", "hoa", "file", "reason"))
+        val commit = "--commit" in args
+        val path = Path.of(o.required("file"))
+        if (!Files.isRegularFile(path)) throw CommandException("No file at $path")
+        if (Files.size(path) > 2L * 1024 * 1024) throw CommandException("File is too large")
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        val result = ImportOwners(db)(
+            operator(o.required("operator")), hoaId, path.fileName.toString(), Files.readAllBytes(path), commit, o["reason"],
+        )
+        return when (result) {
+            is ImportOwners.Result.Planned -> describe(result.plan, "Dry run — nothing was changed.") +
+                if (result.plan.isEmpty) "" else "\nRe-run with --commit --reason <text> to apply."
+            is ImportOwners.Result.Imported -> describe(result.plan, "Imported (batch ${result.importId}).")
+            is ImportOwners.Result.AlreadyImported ->
+                "This file was already imported at ${result.importedAt} (batch ${result.importId}); nothing changed."
+            is ImportOwners.Result.Invalid -> throw CommandException(
+                "File rejected; nothing was changed:\n" + result.errors.joinToString("\n") { e ->
+                    val where = if (e.line == 0L) "File" else "Line ${e.line}"
+                    "  $where${e.column?.let { " [$it]" }.orEmpty()}: ${e.message}"
+                },
+            )
+            is ImportOwners.Result.Conflicts -> throw CommandException(
+                "File conflicts with existing data; nothing was changed:\n" +
+                    result.conflicts.joinToString("\n") { "  ${it.unitLabel}: ${it.message}" },
+            )
+            ImportOwners.Result.Forbidden -> throw CommandException("Operator may not manage membership in this HOA")
+            ImportOwners.Result.ReasonRequired -> throw CommandException("--commit requires --reason (up to 1000 characters)", 2)
+        }
+    }
+
+    private fun describe(plan: ImportOwners.Plan, heading: String): String = buildString {
+        appendLine(heading)
+        appendLine("  Rows: ${plan.rowCount}; units unchanged: ${plan.unchangedUnits}")
+        appendLine("  New properties: ${plan.propertiesToCreate.size}")
+        plan.propertiesToCreate.forEach { appendLine("    ${it.unitLabel}, ${it.addressLine1}") }
+        appendLine("  New owner invitations (sent separately): ${plan.invitationsToCreate.size}")
+        plan.invitationsToCreate.forEach { appendLine("    ${it.unitLabel}: ${it.email}") }
+    }.trimEnd()
 }

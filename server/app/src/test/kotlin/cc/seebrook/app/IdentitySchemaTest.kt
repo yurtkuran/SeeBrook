@@ -40,7 +40,22 @@ class IdentitySchemaTest {
             .set(INVITATION.HOA_ID, hoaId).set(INVITATION.PROPERTY_ID, propertyId)
             .set(INVITATION.EMAIL, email).set(INVITATION.TOKEN_HASH, hash)
             .set(INVITATION.EXPIRES_AT, OffsetDateTime.now().plusDays(1))
+            .set(INVITATION.SENT_AT, OffsetDateTime.now())
             .execute()
+
+    @Test
+    fun `an invitation is either unsent (no token, no expiry) or sent (both)`() {
+        db.dsl.insertInto(INVITATION)
+            .set(INVITATION.HOA_ID, hoaA).set(INVITATION.PROPERTY_ID, unitA.propertyId)
+            .set(INVITATION.EMAIL, "unsent@example.test")
+            .execute()
+        shouldThrow<DataAccessException> {
+            db.dsl.insertInto(INVITATION)
+                .set(INVITATION.HOA_ID, hoaA).set(INVITATION.PROPERTY_ID, unitA.propertyId)
+                .set(INVITATION.EMAIL, "half@example.test").set(INVITATION.TOKEN_HASH, "c".repeat(64))
+                .execute()
+        }.message shouldContain "invitation_sent_consistent"
+    }
 
     @Test
     fun `ownership cannot link an HOA to another HOA's property`() {

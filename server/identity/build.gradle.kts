@@ -7,6 +7,7 @@ plugins {
 dependencies {
     implementation(project(":server:db"))
     api(project(":server:platform"))
+    implementation(project(":server:tenant"))
     implementation(project(":server:property"))
     implementation(libs.commons.csv)
 

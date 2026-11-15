@@ -11,6 +11,7 @@ import cc.seebrook.platform.config.AppConfig
 import cc.seebrook.platform.config.AuthConfig
 import cc.seebrook.platform.config.ConfigException
 import cc.seebrook.platform.db.Database
+import cc.seebrook.platform.jobs.JobWorker
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import org.slf4j.LoggerFactory
@@ -35,9 +36,23 @@ Admin commands (audited; ED-31):
   import-owners --operator <email> --hoa <slug> --file <csv> [--commit --reason <text>]
                              Validate an owner/property CSV and show the changes (dry run by default);
                              --commit applies them all-or-nothing. Columns: unit_label, address_line1,
-                             address_line2, city, state_code, postal_code, owner_email, owner_name."""
+                             address_line2, city, state_code, postal_code, owner_email, owner_name.
+  send-invitations --operator <email> --hoa <slug> [--unit <label>] [--commit] [--reason <text>]
+                             Email invitations that were never sent (dry run by default; --commit queues them).
+  resend-invitation --operator <email> --hoa <slug> --unit <label> --email <email> [--reason <text>]
+                             Email a pending invitation again with a new link; the earlier link stops working.
+  revoke-invitation --operator <email> --hoa <slug> --unit <label> --email <email> --reason <text>
+                             Revoke a pending invitation and cancel any queued email.
+  list-invitations --operator <email> --hoa <slug>
+                             Show every invitation and its state (unsent, queued, sent, expired, accepted, revoked).
 
-private val ADMIN_COMMANDS = setOf("bootstrap-root", "grant-role", "revoke-role", "import-owners")
+Background jobs:
+  run-jobs                   Run queued jobs now (e.g. invitation emails) and exit. `serve` runs them continuously."""
+
+private val ADMIN_COMMANDS = setOf(
+    "bootstrap-root", "grant-role", "revoke-role", "import-owners",
+    "send-invitations", "resend-invitation", "revoke-invitation", "list-invitations",
+)
 
 private fun usage(): Nothing {
     System.err.println(USAGE)
@@ -52,7 +67,7 @@ fun main(args: Array<String>) {
         return
     }
     when (command) {
-        "serve", "migrate", "seed-dev" -> if (operands.isNotEmpty()) usage()
+        "serve", "migrate", "seed-dev", "run-jobs" -> if (operands.isNotEmpty()) usage()
         "dev-invite" -> if (operands.size != 2) usage()
         "dev-token" -> if (operands.size !in 1..2 || (operands.size == 2 && operands[1] != "--unverified")) usage()
         in ADMIN_COMMANDS -> {}
@@ -96,6 +111,10 @@ fun main(args: Array<String>) {
                         "bootstrap-root" -> admin.bootstrapRoot(operands)
                         "grant-role" -> admin.grantRole(operands)
                         "import-owners" -> admin.importOwners(operands)
+                        "send-invitations" -> admin.sendInvitations(operands)
+                        "resend-invitation" -> admin.resendInvitation(operands)
+                        "revoke-invitation" -> admin.revokeInvitation(operands)
+                        "list-invitations" -> admin.listInvitations(operands)
                         else -> admin.revokeRole(operands)
                     }
                 } catch (e: CommandException) {
@@ -105,15 +124,30 @@ fun main(args: Array<String>) {
                 }
                 println(output)
             }
+            "run-jobs" -> {
+                val runner = BackgroundJobs.runner(db, config)
+                if (runner.kinds.isEmpty()) {
+                    println("No job handlers are enabled (email is disabled); nothing was run.")
+                } else {
+                    println("Ran ${runner.drain(max = 1000)} jobs.")
+                }
+            }
             "serve" -> {
                 if (config.migrateOnStart) migrate(db)
+                val runner = BackgroundJobs.runner(db, config)
+                val worker = JobWorker(runner).takeIf { runner.kinds.isNotEmpty() }?.also { it.start() }
+                log.info("Background jobs: {}", runner.kinds.sorted().ifEmpty { listOf("none (email disabled)") }.joinToString())
                 val verifier = when (val auth = config.auth) {
                     is AuthConfig.Firebase -> IdTokenVerifier.firebase(auth.projectId)
                     is AuthConfig.Development -> IdTokenVerifier.development(auth.projectId, auth.secret.toByteArray())
                 }
                 log.info("Auth: {} (project {})", if (config.auth is AuthConfig.Firebase) "Firebase" else "development tokens", config.auth.projectId)
-                embeddedServer(Netty, port = config.httpPort) { seebrookModule(db, verifier) }
-                    .start(wait = true)
+                try {
+                    embeddedServer(Netty, port = config.httpPort) { seebrookModule(db, verifier) }
+                        .start(wait = true)
+                } finally {
+                    worker?.close()
+                }
             }
         }
     }

@@ -3,11 +3,12 @@ plugins {
 }
 
 // Cross-cutting infrastructure shared by all backend services: configuration, database access,
-// and later audit, outbox and authorization context (ED-13).
+// audit, background jobs, the email gateway and authorization context (ED-13).
 dependencies {
     api(libs.jooq)
     api(libs.hikari)
     implementation(libs.nimbus.jose.jwt)
+    implementation(libs.angus.mail)
     implementation(project(":server:db"))
     api(libs.kotlinx.serialization.json)
     runtimeOnly(libs.postgresql)

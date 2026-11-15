@@ -40,12 +40,46 @@ sealed interface AuthConfig {
     }
 }
 
+enum class SmtpSecurity { STARTTLS, TLS, NONE }
+
+/** A provider-neutral SMTP connection (ED-36). */
+class SmtpConfig(
+    val host: String,
+    val port: Int,
+    val username: String?,
+    val password: String?,
+    val security: SmtpSecurity,
+) {
+    override fun toString(): String =
+        "SmtpConfig(host=$host, port=$port, username=${username ?: "none"}, password=${if (password == null) "none" else "****"}, security=$security)"
+}
+
+/**
+ * How email is delivered (ED-36). Only configuration and the composition root name providers;
+ * business code sees the provider-neutral gateway.
+ */
+sealed interface EmailConfig {
+    /** Send through an SMTP server (Mailpit locally). [from] is e.g. `Seebrook <no-reply@seebrook.cc>`. */
+    data class Smtp(val smtp: SmtpConfig, val from: String, val replyTo: String?) : EmailConfig
+
+    /** Send through Brevo's transactional HTTP API (the beta). */
+    class Brevo(val apiKey: String, val from: String, val replyTo: String?, val baseUrl: String) : EmailConfig {
+        override fun toString(): String = "Brevo(apiKey=****, from=$from, replyTo=$replyTo, baseUrl=$baseUrl)"
+    }
+
+    /** No delivery: email jobs stay queued until email is configured. */
+    data object Disabled : EmailConfig
+}
+
 data class AppConfig(
     val environment: Environment,
     val httpPort: Int,
     val database: DatabaseConfig,
     val migrateOnStart: Boolean,
     val auth: AuthConfig,
+    val email: EmailConfig,
+    /** Invitation emails link to `<base>#token=<token>`; the fragment never reaches a server log. */
+    val inviteLinkBase: String,
 ) {
     companion object {
         /** Local Docker Compose database (infra/local). Used only when SEEBROOK_ENV=development. */
@@ -57,6 +91,72 @@ data class AppConfig(
         const val DEV_AUTH_PROJECT_ID = "seebrook-dev"
         const val DEV_AUTH_SECRET = "seebrook-local-development-only-auth-secret"
         private val PROJECT_ID = Regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
+
+        /** Local Mailpit (infra/local); used by default only when SEEBROOK_ENV=development. */
+        const val DEV_SMTP_HOST = "localhost"
+        const val DEV_SMTP_PORT = 1025
+        const val DEV_EMAIL_FROM = "Seebrook (development) <no-reply@seebrook.test>"
+        const val DEFAULT_INVITE_LINK_BASE = "https://seebrook.cc/invite"
+
+        private fun smtpEmail(env: Map<String, String>, environment: Environment): EmailConfig.Smtp {
+            val isDev = environment == Environment.DEVELOPMENT
+            fun value(name: String) = env[name]?.trim()?.takeIf { it.isNotEmpty() }
+            fun required(name: String, devDefault: String) = value(name)
+                ?: if (isDev) devDefault else throw ConfigException("$name is required when SEEBROOK_EMAIL_MODE is smtp")
+
+            val security = when (val raw = value("SEEBROOK_SMTP_SECURITY")?.lowercase() ?: if (isDev) "none" else "starttls") {
+                "starttls" -> SmtpSecurity.STARTTLS
+                "tls" -> SmtpSecurity.TLS
+                "none" -> SmtpSecurity.NONE
+                else -> throw ConfigException("SEEBROOK_SMTP_SECURITY must be starttls, tls or none, not '$raw'")
+            }
+            if (security == SmtpSecurity.NONE && environment == Environment.PRODUCTION) {
+                throw ConfigException("SEEBROOK_SMTP_SECURITY=none is not allowed in production")
+            }
+            val defaultPort = when {
+                isDev && value("SEEBROOK_SMTP_HOST") == null -> DEV_SMTP_PORT
+                security == SmtpSecurity.TLS -> 465
+                security == SmtpSecurity.STARTTLS -> 587
+                else -> 25
+            }
+            val port = value("SEEBROOK_SMTP_PORT")?.let {
+                it.toIntOrNull()?.takeIf { p -> p in 1..65535 } ?: throw ConfigException("SEEBROOK_SMTP_PORT must be a port number")
+            } ?: defaultPort
+            val username = value("SEEBROOK_SMTP_USERNAME")
+            val password = env["SEEBROOK_SMTP_PASSWORD"]?.takeIf { it.isNotEmpty() }
+            if ((username == null) != (password == null)) {
+                throw ConfigException("SEEBROOK_SMTP_USERNAME and SEEBROOK_SMTP_PASSWORD must be set together")
+            }
+            val from = required("SEEBROOK_EMAIL_FROM", DEV_EMAIL_FROM)
+            val replyTo = value("SEEBROOK_EMAIL_REPLY_TO")
+            listOfNotNull(from, replyTo).forEach {
+                if (!EMAIL_ADDRESS.matches(it)) throw ConfigException("Email sender '$it' is not a valid address")
+            }
+            return EmailConfig.Smtp(
+                SmtpConfig(required("SEEBROOK_SMTP_HOST", DEV_SMTP_HOST), port, username, password, security),
+                from,
+                replyTo,
+            )
+        }
+
+        private fun brevoEmail(env: Map<String, String>): EmailConfig.Brevo {
+            fun value(name: String) = env[name]?.trim()?.takeIf { it.isNotEmpty() }
+            fun required(name: String) = value(name) ?: throw ConfigException("$name is required when SEEBROOK_EMAIL_MODE is brevo")
+            val apiKey = required("SEEBROOK_BREVO_API_KEY")
+            val from = required("SEEBROOK_EMAIL_FROM")
+            val replyTo = value("SEEBROOK_EMAIL_REPLY_TO")
+            listOfNotNull(from, replyTo).forEach {
+                if (!EMAIL_ADDRESS.matches(it)) throw ConfigException("Email sender '$it' is not a valid address")
+            }
+            val baseUrl = value("SEEBROOK_BREVO_API_URL") ?: DEFAULT_BREVO_API_URL
+            if (!baseUrl.startsWith("https://")) throw ConfigException("SEEBROOK_BREVO_API_URL must be an https URL")
+            return EmailConfig.Brevo(apiKey, from, replyTo, baseUrl)
+        }
+
+        const val DEFAULT_BREVO_API_URL = "https://api.brevo.com/v3"
+
+        /** `addr@domain` or `Name <addr@domain>`. */
+        private val EMAIL_ADDRESS = Regex("^([^<>]+<)?[^@<>\\s]+@[^@<>\\s]+\\.[^@<>\\s]+>?$")
 
         fun fromEnvironment(env: Map<String, String> = System.getenv()): AppConfig {
             val environment = Environment.parse(
@@ -102,12 +202,29 @@ data class AppConfig(
                 else -> throw ConfigException("SEEBROOK_AUTH_MODE must be firebase or development, not '$mode'")
             }
 
+            val email = when (val mode = env["SEEBROOK_EMAIL_MODE"]?.trim()?.lowercase()
+                ?: if (isDev) "smtp" else "disabled") {
+                "smtp" -> smtpEmail(env, environment)
+                "brevo" -> brevoEmail(env)
+                "disabled" -> EmailConfig.Disabled
+                else -> throw ConfigException("SEEBROOK_EMAIL_MODE must be smtp, brevo or disabled, not '$mode'")
+            }
+
+            val inviteLinkBase = env["SEEBROOK_INVITE_LINK_BASE"]?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_INVITE_LINK_BASE
+            val secureLink = inviteLinkBase.startsWith("https://")
+            val localLink = inviteLinkBase.startsWith("http://localhost") || inviteLinkBase.startsWith("http://127.0.0.1")
+            if ('#' in inviteLinkBase || !(secureLink || (localLink && environment != Environment.PRODUCTION))) {
+                throw ConfigException("SEEBROOK_INVITE_LINK_BASE must be an https URL without a fragment")
+            }
+
             return AppConfig(
                 environment = environment,
                 httpPort = port,
                 database = database,
                 migrateOnStart = migrateOnStart,
                 auth = auth,
+                email = email,
+                inviteLinkBase = inviteLinkBase,
             )
         }
     }

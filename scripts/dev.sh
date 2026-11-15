@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-command local startup: database, migrations, synthetic data, then the API on http://localhost:8088.
+# One-command local startup: database, mail catcher, migrations, synthetic data, then the API on http://localhost:8088.
 #   scripts/dev.sh          start everything
 #   scripts/dev.sh down     stop the local database (data is kept)
 #   scripts/dev.sh reset    stop the local database and delete its data
@@ -24,7 +24,7 @@ case "${1:-up}" in
     ;;
 esac
 
-echo "==> Starting local PostgreSQL"
+echo "==> Starting local PostgreSQL and Mailpit (emails: http://localhost:8025)"
 "${COMPOSE[@]}" up -d --wait
 
 echo "==> Building the backend"

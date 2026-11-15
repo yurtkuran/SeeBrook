@@ -85,6 +85,7 @@ class IssueInvitation(private val db: Database, private val clock: Clock = Clock
                 .set(INVITATION.EMAIL, normalized)
                 .set(INVITATION.TOKEN_HASH, requireNotNull(InvitationTokens.hashOrNull(token)))
                 .set(INVITATION.EXPIRES_AT, expiresAt.toDb())
+                .set(INVITATION.SENT_AT, now.toDb())
                 .returning(INVITATION.ID)
                 .fetchSingle()
                 .id
@@ -143,13 +144,15 @@ class AcceptInvitation(private val db: Database, private val clock: Clock = Cloc
             InvitationStatus.REVOKED -> return Result.NoLongerValid
         }
         val now = clock.instant()
-        if (!invitation.expiresAt.toInstant().isAfter(now)) return Result.Expired
+        // A token match implies the invitation was sent, so it has an expiry.
+        val expiresAt = invitation.expiresAt ?: return Result.NotFound
+        if (!expiresAt.toInstant().isAfter(now)) return Result.Expired
 
         val email = identity.email?.let(EmailAddress::normalize)
         if (!identity.emailVerified || email == null) return Result.EmailNotVerified
         if (email != invitation.email) return Result.EmailMismatch
 
-        val user = linkedUser ?: findUserByEmail(tx, email) ?: createUser(tx, email, identity.name)
+        val user = linkedUser ?: findUserByEmail(tx, email) ?: createUser(tx, email, identity.name ?: invitation.inviteeName)
         if (user.status != UserStatus.ACTIVE) return Result.AccountDisabled
         if (linkedUser == null) {
             tx.insertInto(EXTERNAL_IDENTITY)

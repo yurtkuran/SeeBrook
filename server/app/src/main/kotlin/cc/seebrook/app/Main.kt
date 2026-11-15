@@ -31,9 +31,13 @@ Admin commands (audited; ED-31):
                              Create the first Root user. Refused once any Root exists.
   grant-role  --operator <email> --user <email> --role <role> [--hoa <slug>] --reason <text>
   revoke-role --operator <email> --user <email> --role <role> [--hoa <slug>] --reason <text>
-                             Roles: root (no --hoa), hoa_admin, membership_admin, document_admin, financial_admin."""
+                             Roles: root (no --hoa), hoa_admin, membership_admin, document_admin, financial_admin.
+  import-owners --operator <email> --hoa <slug> --file <csv> [--commit --reason <text>]
+                             Validate an owner/property CSV and show the changes (dry run by default);
+                             --commit applies them all-or-nothing. Columns: unit_label, address_line1,
+                             address_line2, city, state_code, postal_code, owner_email, owner_name."""
 
-private val ADMIN_COMMANDS = setOf("bootstrap-root", "grant-role", "revoke-role")
+private val ADMIN_COMMANDS = setOf("bootstrap-root", "grant-role", "revoke-role", "import-owners")
 
 private fun usage(): Nothing {
     System.err.println(USAGE)
@@ -91,6 +95,7 @@ fun main(args: Array<String>) {
                     when (command) {
                         "bootstrap-root" -> admin.bootstrapRoot(operands)
                         "grant-role" -> admin.grantRole(operands)
+                        "import-owners" -> admin.importOwners(operands)
                         else -> admin.revokeRole(operands)
                     }
                 } catch (e: CommandException) {

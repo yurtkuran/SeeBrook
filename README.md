@@ -41,7 +41,11 @@ Operators run audited admin commands with the same executable (ED-31). Set the s
 seebrook bootstrap-root --email <email>    # once: create the first Root
 seebrook grant-role --operator <email> --user <email> --role hoa_admin --hoa channel-harbor --reason "<why>"
 seebrook revoke-role --operator <email> --user <email> --role hoa_admin --hoa channel-harbor --reason "<why>"
+seebrook import-owners --operator <email> --hoa channel-harbor --file owners.csv               # dry run
+seebrook import-owners --operator <email> --hoa channel-harbor --file owners.csv --commit --reason "<why>"
 ```
+
+A synthetic example roster is in `server/app/src/main/resources/dev-fixtures/channel-harbor/owners.csv` (ED-34 describes the format).
 
 Run `seebrook help` for every command.
 

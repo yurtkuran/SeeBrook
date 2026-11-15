@@ -9,6 +9,13 @@ dependencies {
     api(libs.hikari)
     implementation(libs.nimbus.jose.jwt)
     implementation(libs.angus.mail)
+    implementation(platform(libs.aws.sdk.bom))
+    // S3 over the JDK's HTTP client; the Netty and Apache clients are left out (Ktor brings its own Netty).
+    implementation(libs.aws.sdk.s3) {
+        exclude(group = "software.amazon.awssdk", module = "netty-nio-client")
+        exclude(group = "software.amazon.awssdk", module = "apache-client")
+    }
+    implementation(libs.aws.sdk.url.connection.client)
     implementation(project(":server:db"))
     api(libs.kotlinx.serialization.json)
     runtimeOnly(libs.postgresql)

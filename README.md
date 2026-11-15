@@ -11,7 +11,7 @@ Prerequisites: Eclipse Temurin JDK 21, Docker.
 ```bash
 git config core.hooksPath .githooks   # once per clone: blocks direct commits/pushes to develop and master
 
-scripts/dev.sh            # start PostgreSQL and Mailpit, migrate, load synthetic Channel Harbor data, serve on :8088
+scripts/dev.sh            # start PostgreSQL, Mailpit, S3Mock and ClamAV; migrate; load synthetic data; serve on :8088
 curl localhost:8088/health/ready
 scripts/dev.sh down       # stop the local database (scripts/dev.sh reset also deletes its data)
 
@@ -50,7 +50,13 @@ seebrook resend-invitation --operator <email> --hoa channel-harbor --unit "Unit 
 seebrook revoke-invitation --operator <email> --hoa channel-harbor --unit "Unit 07" --email <owner> --reason "<why>"
 seebrook transfer-ownership --operator <email> --hoa channel-harbor --unit "Unit 07" --to <buyer>[,<co-buyer>]   # dry run
 seebrook transfer-ownership --operator <email> --hoa channel-harbor --unit "Unit 07" --to <buyer> --commit --reason "<why>"
+seebrook create-category --operator <email> --hoa channel-harbor --name "Governing documents"
+seebrook upload-document --operator <email> --hoa channel-harbor --category "Governing documents" \
+  --title "Bylaws" --description "Current bylaws" --file bylaws.pdf [--tags bylaws,rules] [--document-date 2026-03-01]
+seebrook list-documents --operator <email> --hoa channel-harbor
 ```
+
+Uploaded PDFs are checked at once, kept in quarantine, scanned by ClamAV in the background and published only when clean (ED-38). Locally, ClamAV takes about a minute to load its signatures after `scripts/dev.sh` starts it.
 
 The server sends queued invitation emails in the background (`seebrook run-jobs` sends them without a server). Locally, every email is caught by Mailpit — open http://localhost:8025 to read it and copy the invitation code; nothing is sent to real addresses. In production, emails stay queued until email is configured (ED-35, ED-36).
 
@@ -70,10 +76,10 @@ Run `seebrook help` for every command.
 ├── shared/                 Kotlin Multiplatform: API client, DTOs, input checks (ED-08, ED-15, ED-17)
 ├── server/                 Kotlin/Ktor backend — one deployable (ED-13)
 │   ├── app/                Entry point, HTTP routes, admin CLI
-│   ├── platform/           Configuration, DB access, token verification, roles, audit, jobs, email
+│   ├── platform/           Configuration, DB access, token verification, roles, audit, jobs, email, storage, scanning
 │   ├── db/                 Flyway migrations and generated jOOQ classes (ED-21)
-│   ├── tenant/ identity/ property/   Services built so far (ED-13)
-│   └── <service>/          ledger, assessment, payment, document (later milestones)
+│   ├── tenant/ identity/ property/ document/   Services built so far (ED-13)
+│   └── <service>/          ledger, assessment, payment (later milestones)
 ├── mobile-ios/             SwiftUI app (built first, ED-16)
 ├── mobile-android/         Jetpack Compose app (after iOS)
 ├── webapp/                 Reserved: future web client/admin portal (not in pilot scope)

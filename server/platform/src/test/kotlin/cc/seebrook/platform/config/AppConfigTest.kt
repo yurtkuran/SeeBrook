@@ -169,4 +169,35 @@ class AppConfigTest {
         email.toString() shouldNotContain "xkeysib-secret-value"
         shouldThrow<ConfigException> { AppConfig.fromEnvironment(brevo + ("SEEBROOK_BREVO_API_URL" to "http://api.example.test")) }
     }
+
+    @Test
+    fun `development uses local S3Mock and ClamAV while elsewhere storage and scanning are off until configured`() {
+        val dev = AppConfig.fromEnvironment(mapOf("SEEBROOK_ENV" to "development"))
+        requireNotNull(dev.storage).endpoint shouldBe "http://localhost:9090"
+        dev.scanner shouldBe ScannerConfig.Clamd("localhost", 3310)
+        dev.documentMaxBytes shouldBe 25 * 1024 * 1024
+
+        val prod = AppConfig.fromEnvironment(productionDb + ("SEEBROOK_FIREBASE_PROJECT_ID" to "seebrook-prod"))
+        prod.storage shouldBe null
+        prod.scanner shouldBe ScannerConfig.Disabled
+    }
+
+    @Test
+    fun `production storage needs its settings and https, and hides the secret key`() {
+        val prod = productionDb + mapOf("SEEBROOK_FIREBASE_PROJECT_ID" to "seebrook-prod", "SEEBROOK_STORAGE_MODE" to "s3")
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(prod) }.message shouldContain "SEEBROOK_S3_REGION"
+
+        val s3 = prod + mapOf(
+            "SEEBROOK_S3_REGION" to "auto",
+            "SEEBROOK_S3_BUCKET" to "seebrook-prod",
+            "SEEBROOK_S3_ACCESS_KEY_ID" to "key-id",
+            "SEEBROOK_S3_SECRET_ACCESS_KEY" to "s3-secret-value",
+            "SEEBROOK_S3_ENDPOINT" to "https://storage.example.test",
+        )
+        val storage = requireNotNull(AppConfig.fromEnvironment(s3).storage)
+        storage.pathStyle shouldBe false
+        storage.toString() shouldNotContain "s3-secret-value"
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(s3 + ("SEEBROOK_S3_ENDPOINT" to "http://storage.example.test")) }
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(s3 + ("SEEBROOK_DOCUMENT_MAX_MB" to "0")) }
+    }
 }

@@ -26,5 +26,20 @@ services:
       - "127.0.0.1:1025:1025"
       - "127.0.0.1:8025:8025"
 
+  # Private document storage stand-in (S3-compatible, ED-38). Data is lost when the container is removed.
+  s3:
+    image: adobe/s3mock:5.2.3
+    environment:
+      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: seebrook-dev
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  # Malware scanner for uploaded PDFs (GA-12, ED-38). Needs ~1.5 GB of memory and about a minute
+  # to load its signatures after starting.
+  clamav:
+    image: clamav/clamav:1.5.4-debian   # multi-architecture; the plain tag is amd64 only
+    ports:
+      - "127.0.0.1:3310:3310"
+
 volumes:
   pgdata:

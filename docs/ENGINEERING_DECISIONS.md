@@ -51,6 +51,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-35 | Invitation delivery through the job outbox | Accepted | 2026-11-15 |
 | ED-36 | Provider-neutral email gateway; Mailpit locally, Brevo HTTP API for the beta, Postmark or Resend later | Accepted | 2026-11-15 |
 | ED-37 | Ownership transfer: set a unit's owners atomically; access ends on the next request | Accepted | 2026-11-15 |
+| ED-38 | Document storage, upload checks and ClamAV malware scanning | Accepted | 2026-11-15 |
 
 ## Pending decisions
 
@@ -63,8 +64,7 @@ This complements — and never overrides — the approved product constraints in
 | Privacy policy and terms of service | Before App Store submission | Required by the App Store; decide author and publisher (Seebrook vs HOA) — legal |
 | Legal entity / account ownership | Before developer accounts, the production Firebase project and processor setup | Who owns developer accounts, domain, Firebase/Google Cloud project, platform and processor relationship (individual, company or HOA) — owner to decide |
 | Future web client (`webapp/`) | After pilot | Folder reserved; not in pilot scope. Likely the financial administration portal required before a second HOA |
-| Private object storage provider | M3 | S3-compatible, private bucket, signed URLs; usually follows hosting choice |
-| Malware scanning approach | M3 | e.g. ClamAV in-process or provider service (GA-12) |
+| Private object storage provider | Before the first real document upload | Any S3-compatible provider works (ED-38); usually follows the hosting choice. Needs a private bucket, keys limited to it, and its own backups (REQUIREMENTS: PDFs are backed up) |
 | Payment processor | M5 | Short comparison: ACH/cards/recurring/webhooks/per-HOA merchant (see `OPEN_QUESTIONS.md`) |
 | Pilot access for Android owners | Before M7 | iOS ships first (ED-16). Decide whether the pilot starts with iOS owners only or waits for Android — user-facing, owner to decide |
 | Apple / Google developer accounts | Before first TestFlight build | Apple Developer Program ($99/yr) and Google Play ($25 one-time), ideally under an organization |
@@ -462,6 +462,22 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Not yet covered:** the date of sale (recorded on the roadmap with owner profile details; the ownership end time is when the transfer was recorded); cancelling the previous owner's recurring payments, which M6 adds to this same transaction (GA-08).
 - **Alternatives considered:** Separate add-owner and remove-owner commands — two steps for a sale, with a window where the unit has both or neither owner. Ending ownership via the import — rejected in ED-34.
 
+## ED-38 — Document storage, upload checks and malware scanning
+- **Status:** Accepted · **Date:** 2026-11-15 · **Decided by:** project owner (ClamAV); engineering (the rest) · **Related:** GA-10–GA-13, ED-13, ED-35
+- **Decision:**
+  - **Private object storage behind an interface:** `ObjectStorage` (put, get, copy, delete, signed download link) with one adapter for any S3-compatible service (AWS S3, Cloudflare R2, Backblaze B2, DigitalOcean Spaces, …). Nothing is public; owners will download through short-lived signed links (M3 part 2). The provider follows the hosting decision. Locally and in tests, Adobe's S3Mock stands in. (MinIO no longer publishes free images.)
+  - **Malware scanning with ClamAV (owner's choice):** `MalwareScanner` with a `ClamdScanner` adapter that streams the file to ClamAV's daemon running next to the server (`INSTREAM`), so documents never leave our infrastructure. ClamAV needs about 1.5–2 GB of memory and loads its signatures in roughly a minute; signatures update automatically. No verdict (unreachable, size limit, error) is never treated as clean.
+  - **Upload pipeline (GA-12):**
+    1. `upload-document` checks the details (title, description, category required; tags; document date) and the file at once: not empty, within the size limit (25 MB, `SEEBROOK_DOCUMENT_MAX_MB`), a PDF signature, opens as a PDF (Apache PDFBox), not encrypted or restricted, at least one page. A bad file is refused before anything is stored.
+    2. The file is stored under a quarantine prefix, and the document (status `processing`) and version (state `quarantined`) are recorded with the file's SHA-256, together with a job (ED-35) and an audit event.
+    3. The job re-reads the file, checks it is unchanged (SHA-256) and still valid, and scans it. Clean: it is copied to its permanent private location, the version becomes `clean`, the document is published, and the quarantined copy is removed. Infected or invalid: the version is `rejected` with the reason, the document too if it was new, and the file is deleted; the record and audit event are kept. Scanner or storage unavailable: the job retries and the file stays quarantined.
+    4. Nothing is visible to owners until published. In an environment without storage or a scanner, uploads are not processed (the job waits), so nothing is ever published unscanned.
+  - **Data model:** `document.category` (stable IDs, names unique per HOA ignoring case), `document.document` (metadata, status, current version), `document.version` (storage key, size, SHA-256, page count, check results, uploader). References are HOA-scoped (ED-26). Documents and versions are never deleted (GA-11).
+  - **Permissions:** "manage documents" in the HOA (Document Admin, or Root) for categories and uploads (ED-32); every change is audited.
+- **Configuration (ED-23):** `SEEBROOK_STORAGE_MODE` (`s3` | `disabled`; default `s3` with the local S3Mock in development, `disabled` elsewhere), `SEEBROOK_S3_ENDPOINT` (optional for AWS; https in production), `SEEBROOK_S3_REGION`, `SEEBROOK_S3_BUCKET`, `SEEBROOK_S3_ACCESS_KEY_ID`, `SEEBROOK_S3_SECRET_ACCESS_KEY` (never logged), `SEEBROOK_S3_PATH_STYLE`; `SEEBROOK_MALWARE_SCAN_MODE` (`clamd` | `disabled`; default `clamd` on localhost in development), `SEEBROOK_CLAMD_HOST`, `SEEBROOK_CLAMD_PORT` (3310); `SEEBROOK_DOCUMENT_MAX_MB` (default 25, at most 100).
+- **Libraries and images:** AWS SDK for Java 2.57.8 (S3 only, over the JDK HTTP client), Apache PDFBox 3.0.8, `clamav/clamav:1.5.4-debian` (multi-architecture), `adobe/s3mock:5.2.3`.
+- **Alternatives considered:** A hosted scanning API — documents would go to another vendor. The host's built-in scanning (e.g. AWS GuardDuty) — ties scanning to a hosting choice not yet made. Scanning synchronously in the upload command — an unavailable scanner would fail the upload instead of retrying. Storing files in PostgreSQL — larger backups and database load for no benefit over object storage.
+
 ---
 
 ## Change log
@@ -480,3 +496,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-14 — M2: added ED-34 (owner CSV import; invitations start unsent, amending ED-29).
 - 2026-11-15 — M2: added ED-35 (invitation delivery through the job outbox; worker thread amends ED-06; tokens created at each send, amending ED-29) and ED-36 (provider-neutral email gateway; owner chose Mailpit for development, Brevo's HTTP API for the beta, Postmark or Resend later). Replaced the email provider pending item with the Brevo account and domain setup.
 - 2026-11-15 — M2: added ED-37 (ownership transfer).
+- 2026-11-15 — M3: added ED-38 (S3-compatible private storage, upload checks, ClamAV scanning chosen by owner). Resolved the malware scanning pending item; updated the storage provider item.

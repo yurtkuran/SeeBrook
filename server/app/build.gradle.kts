@@ -17,6 +17,7 @@ dependencies {
     implementation(project(":server:tenant"))
     implementation(project(":server:property"))
     implementation(project(":server:identity"))
+    implementation(project(":server:document"))
 
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.netty)
@@ -35,6 +36,7 @@ dependencies {
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.ktor.client.content.negotiation)
     testImplementation(libs.nimbus.jose.jwt)
+    testImplementation(libs.pdfbox)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 

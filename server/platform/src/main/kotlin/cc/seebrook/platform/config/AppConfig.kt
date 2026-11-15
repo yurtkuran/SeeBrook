@@ -71,6 +71,27 @@ sealed interface EmailConfig {
     data object Disabled : EmailConfig
 }
 
+/** S3-compatible private storage (ED-38). [endpoint] is null for AWS itself. */
+class StorageConfig(
+    val endpoint: String?,
+    val region: String,
+    val bucket: String,
+    val accessKeyId: String,
+    val secretAccessKey: String,
+    val pathStyle: Boolean,
+) {
+    override fun toString(): String =
+        "StorageConfig(endpoint=$endpoint, region=$region, bucket=$bucket, accessKeyId=$accessKeyId, secretAccessKey=****, pathStyle=$pathStyle)"
+}
+
+/** Malware scanning of uploads (GA-12, ED-38). */
+sealed interface ScannerConfig {
+    data class Clamd(val host: String, val port: Int) : ScannerConfig
+
+    /** No scanner: uploads stay quarantined and are never published. */
+    data object Disabled : ScannerConfig
+}
+
 data class AppConfig(
     val environment: Environment,
     val httpPort: Int,
@@ -80,6 +101,10 @@ data class AppConfig(
     val email: EmailConfig,
     /** Invitation emails link to `<base>#token=<token>`; the fragment never reaches a server log. */
     val inviteLinkBase: String,
+    /** Null when storage is disabled: document uploads and downloads are unavailable. */
+    val storage: StorageConfig? = null,
+    val scanner: ScannerConfig = ScannerConfig.Disabled,
+    val documentMaxBytes: Int = DEFAULT_DOCUMENT_MAX_MB * 1024 * 1024,
 ) {
     companion object {
         /** Local Docker Compose database (infra/local). Used only when SEEBROOK_ENV=development. */
@@ -155,6 +180,54 @@ data class AppConfig(
 
         const val DEFAULT_BREVO_API_URL = "https://api.brevo.com/v3"
 
+        /** Local S3Mock and ClamAV (infra/local); used by default only when SEEBROOK_ENV=development. */
+        const val DEV_S3_ENDPOINT = "http://localhost:9090"
+        const val DEV_S3_BUCKET = "seebrook-dev"
+        const val DEV_CLAMD_PORT = 3310
+        const val DEFAULT_DOCUMENT_MAX_MB = 25
+
+        private fun storage(env: Map<String, String>, environment: Environment): StorageConfig? {
+            val isDev = environment == Environment.DEVELOPMENT
+            fun value(name: String) = env[name]?.trim()?.takeIf { it.isNotEmpty() }
+            val mode = value("SEEBROOK_STORAGE_MODE")?.lowercase() ?: if (isDev) "s3" else "disabled"
+            if (mode == "disabled") return null
+            if (mode != "s3") throw ConfigException("SEEBROOK_STORAGE_MODE must be s3 or disabled, not '$mode'")
+            fun required(name: String, devDefault: String) =
+                value(name) ?: if (isDev) devDefault else throw ConfigException("$name is required when SEEBROOK_STORAGE_MODE is s3")
+
+            val endpoint = value("SEEBROOK_S3_ENDPOINT") ?: if (isDev) DEV_S3_ENDPOINT else null
+            if (endpoint != null && environment == Environment.PRODUCTION && !endpoint.startsWith("https://")) {
+                throw ConfigException("SEEBROOK_S3_ENDPOINT must be an https URL in production")
+            }
+            val pathStyle = value("SEEBROOK_S3_PATH_STYLE")?.let {
+                it.toBooleanStrictOrNull() ?: throw ConfigException("SEEBROOK_S3_PATH_STYLE must be true or false")
+            } ?: isDev
+            return StorageConfig(
+                endpoint = endpoint,
+                region = required("SEEBROOK_S3_REGION", "us-east-1"),
+                bucket = required("SEEBROOK_S3_BUCKET", DEV_S3_BUCKET),
+                accessKeyId = required("SEEBROOK_S3_ACCESS_KEY_ID", "local"),
+                secretAccessKey = env["SEEBROOK_S3_SECRET_ACCESS_KEY"]?.takeIf { it.isNotEmpty() }
+                    ?: if (isDev) "local-development-only" else throw ConfigException("SEEBROOK_S3_SECRET_ACCESS_KEY is required when SEEBROOK_STORAGE_MODE is s3"),
+                pathStyle = pathStyle,
+            )
+        }
+
+        private fun scanner(env: Map<String, String>, environment: Environment): ScannerConfig {
+            val isDev = environment == Environment.DEVELOPMENT
+            fun value(name: String) = env[name]?.trim()?.takeIf { it.isNotEmpty() }
+            return when (val mode = value("SEEBROOK_MALWARE_SCAN_MODE")?.lowercase() ?: if (isDev) "clamd" else "disabled") {
+                "clamd" -> ScannerConfig.Clamd(
+                    host = value("SEEBROOK_CLAMD_HOST") ?: if (isDev) "localhost" else throw ConfigException("SEEBROOK_CLAMD_HOST is required when SEEBROOK_MALWARE_SCAN_MODE is clamd"),
+                    port = value("SEEBROOK_CLAMD_PORT")?.let {
+                        it.toIntOrNull()?.takeIf { p -> p in 1..65535 } ?: throw ConfigException("SEEBROOK_CLAMD_PORT must be a port number")
+                    } ?: DEV_CLAMD_PORT,
+                )
+                "disabled" -> ScannerConfig.Disabled
+                else -> throw ConfigException("SEEBROOK_MALWARE_SCAN_MODE must be clamd or disabled, not '$mode'")
+            }
+        }
+
         /** `addr@domain` or `Name <addr@domain>`. */
         private val EMAIL_ADDRESS = Regex("^([^<>]+<)?[^@<>\\s]+@[^@<>\\s]+\\.[^@<>\\s]+>?$")
 
@@ -217,6 +290,10 @@ data class AppConfig(
                 throw ConfigException("SEEBROOK_INVITE_LINK_BASE must be an https URL without a fragment")
             }
 
+            val documentMaxMb = env["SEEBROOK_DOCUMENT_MAX_MB"]?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                it.toIntOrNull()?.takeIf { mb -> mb in 1..100 } ?: throw ConfigException("SEEBROOK_DOCUMENT_MAX_MB must be between 1 and 100")
+            } ?: DEFAULT_DOCUMENT_MAX_MB
+
             return AppConfig(
                 environment = environment,
                 httpPort = port,
@@ -225,6 +302,9 @@ data class AppConfig(
                 auth = auth,
                 email = email,
                 inviteLinkBase = inviteLinkBase,
+                storage = storage(env, environment),
+                scanner = scanner(env, environment),
+                documentMaxBytes = documentMaxMb * 1024 * 1024,
             )
         }
     }

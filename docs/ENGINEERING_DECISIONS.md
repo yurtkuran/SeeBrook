@@ -19,7 +19,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-03 | Database access: jOOQ on PostgreSQL | Accepted | 2026-11-13 |
 | ED-04 | Schema migrations: Flyway (plain SQL) | Accepted | 2026-11-13 |
 | ED-05 | Money representation: `BigDecimal` value class, `NUMERIC` columns | Accepted | 2026-11-13 |
-| ED-06 | Background jobs: DB outbox + in-process coroutine worker | Accepted | 2026-11-13 |
+| ED-06 | Background jobs: DB outbox + in-process coroutine worker | Accepted, amended by ED-35 | 2026-11-13 |
 | ED-07 | Testing: JUnit 5, Kotest assertions, Testcontainers PostgreSQL | Accepted | 2026-11-13 |
 | ED-08 | Shared module of pure Kotlin types (KMP-ready) | Accepted | 2026-11-13 |
 | ED-09 | Build: Gradle with Kotlin DSL | Accepted | 2026-11-13 |
@@ -42,12 +42,14 @@ This complements — and never overrides — the approved product constraints in
 | ED-26 | Record identifiers: UUIDv7 primary keys; HOA-scoped composite references | Accepted | 2026-11-14 |
 | ED-27 | Protected branches enforced by local git hooks (no GitHub branch protection) | Accepted | 2026-11-14 |
 | ED-28 | Authentication: Firebase Auth (identity only); authorization in our database; Root MFA deferred | Accepted, amended by ED-29 | 2026-11-14 |
-| ED-29 | Sign-in and invitation rules; development tokens instead of the Firebase emulator | Accepted, amended by ED-34 | 2026-11-14 |
+| ED-29 | Sign-in and invitation rules; development tokens instead of the Firebase emulator | Accepted, amended by ED-34 and ED-35 | 2026-11-14 |
 | ED-30 | Automated schema-ownership check | Accepted | 2026-11-14 |
 | ED-31 | Pilot operators: owner is sole Root and operator; admin commands name their operator | Accepted | 2026-11-14 |
 | ED-32 | Roles and permissions | Accepted | 2026-11-14 |
 | ED-33 | Append-only audit trail | Accepted | 2026-11-14 |
 | ED-34 | Owner CSV import: additive, all-or-nothing, never transfers ownership | Accepted | 2026-11-14 |
+| ED-35 | Invitation delivery through the job outbox | Accepted | 2026-11-15 |
+| ED-36 | Provider-neutral email gateway; Mailpit locally, Brevo HTTP API for the beta, Postmark or Resend later | Accepted | 2026-11-15 |
 
 ## Pending decisions
 
@@ -55,7 +57,7 @@ This complements — and never overrides — the approved product constraints in
 |---|---|---|
 | Hosting provider | M1 (before first deploy) | Low-cost managed PostgreSQL + single service; escalate only material cost/security differences |
 | Root MFA (Identity Platform upgrade) | Before a second HOA joins the beta | Deferred by owner (GA-04 amendment, ED-28). Upgrade the Firebase project to Identity Platform and enforce TOTP for Root |
-| Transactional email provider | M1 / M2 (invitations) | e.g. Postmark, SES, Resend; send from `seebrook.cc` with SPF/DKIM/DMARC |
+| Brevo account and sending domain | Before the first real invitation is sent | Provider chosen by owner (ED-36). Owner creates the Brevo account (under the pending legal entity), authenticates `seebrook.cc` (SPF, DKIM, DMARC) and turns off open/click tracking; then set `SEEBROOK_EMAIL_MODE=brevo`, `SEEBROOK_BREVO_API_KEY` and `SEEBROOK_EMAIL_FROM`, and send a test email. Until then production keeps invitation emails queued |
 | Account deletion vs financial record retention | Before App Store submission | App Store requires in-app account deletion; financial history must be retained. Proposed: delete/anonymize identity and contact data, retain ledger and audit records. Owner approval + legal check — user-facing/legal |
 | Privacy policy and terms of service | Before App Store submission | Required by the App Store; decide author and publisher (Seebrook vs HOA) — legal |
 | Legal entity / account ownership | Before developer accounts, the production Firebase project and processor setup | Who owns developer accounts, domain, Firebase/Google Cloud project, platform and processor relationship (individual, company or HOA) — owner to decide |
@@ -413,6 +415,41 @@ Each exception must state what it is, why it cannot live solely in the backend, 
   - **Ownership of the action:** `ImportOwners` lives in IdentityService (it creates invitations) and creates properties through PropertyService's public API in the same transaction (ED-13).
 - **Alternatives considered:** Full synchronization (removing owners missing from the file) — rejected: a typo or partial file would silently revoke access. Storing tokens at import — rejected: usable tokens would sit in the database before sending.
 
+## ED-35 — Invitation delivery through the job outbox
+- **Status:** Accepted · **Date:** 2026-11-15 · **Amends:** ED-06, ED-29 item 2 · **Related:** GA-05, ED-33, ED-34
+- **Decision:**
+  - **Job outbox (implements ED-06):** `jobs.outbox_job`, owned by the platform module. A job is written in the same transaction as the change that needs it; one queued or running job per dedupe key. The worker claims jobs with `FOR UPDATE SKIP LOCKED`, retries failures after 1, 4 and 16 minutes, then hourly, and marks a job failed after 6 attempts, or at once when the failure is permanent (e.g. the provider rejected the address). A job left running by a dead worker is claimed again after a 5-minute lease. Only kinds with a registered handler are claimed. Payloads hold IDs only; a failure records the exception type only, never its message, since messages can contain personal data.
+  - **Worker (amends ED-06):** one background thread inside `serve`, polling every 10 seconds, instead of a coroutine worker — the job code is blocking JDBC, and a thread is the simplest correct choice. `seebrook run-jobs` runs due jobs once.
+  - **Sending:** `send-invitations` queues emails for invitations never sent (whole HOA or one unit); dry run by default, `--commit` to queue, because email is outward-facing. `resend-invitation` re-queues a pending invitation (sent, unsent or expired). `revoke-invitation` revokes it with a required reason and cancels any queued email. `list-invitations` shows each invitation's state. All require "manage membership" in the HOA and are audited (ED-32, ED-33).
+  - **Tokens are created at delivery (amends ED-29 item 2):** the job, in one transaction, checks the invitation is still pending and gives it a new token, `sent_at` and 14-day expiry, then sends. Each send replaces the previous token, so a resend makes the earlier link stop working, and an invitation accepted or revoked while its email was queued is not sent. A failed send is retried with another new token. If the provider accepted a message but the reply was lost, the retry sends a second email and only the newest link works. Resending updates the same invitation instead of creating a new one.
+  - **Email content:** a transactional email (ED-36) in plain text with the HOA, unit, a link `<SEEBROOK_INVITE_LINK_BASE>#token=<token>` and the same code to type into the app; the expiry is shown in the HOA's time zone. The token goes in the URL fragment, which browsers do not send to servers, so it stays out of web server logs.
+  - **While email is disabled** (the production default until the provider is set up), no email handler is registered, so invitation jobs wait in the queue and are sent once email is configured.
+- **Configuration added (ED-23):** `SEEBROOK_INVITE_LINK_BASE` (default `https://seebrook.cc/invite`; must be https, or localhost outside production). Email settings: ED-36.
+- **Alternatives considered:** Storing the rendered email (with its token) in the outbox — rejected: usable tokens would sit in the database until sent (ED-34). A separate email table per service — the generic outbox serves later jobs too (recurring-charge cancellation, reconciliation).
+
+## ED-36 — Provider-neutral email gateway
+- **Status:** Accepted · **Date:** 2026-11-15 · **Decided by:** project owner (abstraction, providers, Brevo's HTTP API for the beta) · **Related:** GA-05, ED-35
+- **Decision:**
+  - **One interface, two operations:** business code sends email only through `EmailGateway`: `sendTransactional(to, email)` for one message about a person's own account or action (invitations, receipts), and `sendBulk(hoaId, recipients, template)` for the same template to members of one HOA (notices). Bulk sends one message per recipient, so no one sees another's address; a bad address fails only that recipient and is reported back. Provider names never appear in business code; configuration and the composition root (`BackgroundJobs`) are the only places that name a provider.
+  - **Our templates and data stay ours:** templates are Kotlin code in this repository and are rendered by us; the provider receives only finished messages. No provider-side templates, contact lists, audiences or campaigns. Switching provider changes no content.
+  - **Implementations (adapters):**
+
+    | Stage | Provider | Adapter |
+    |---|---|---|
+    | Development and gateway tests | Mailpit (container in `infra/local`, web UI at http://localhost:8025) | `SmtpEmailGateway`. Nothing leaves the machine |
+    | Beta | Brevo | `BrevoEmailGateway`: Brevo's transactional HTTP API (`POST /v3/smtp/email`). Domain-authenticated `seebrook.cc` sender; open and click tracking turned off in the account (click tracking would route invitation links through Brevo's redirect domain) |
+    | Later | Postmark or Resend | A new adapter for its HTTP API (or SMTP settings), behind the same interface |
+
+    The HTTP API is used for the beta because it works on hosts that block outbound SMTP ports (hosting is not yet chosen), tells a permanent rejection from a temporary failure, and supports one-request bulk sends. `SmtpEmailGateway` stays for Mailpit and as a fallback for any provider.
+  - **Failures:** `EmailRejectedException` means the provider refused the message for good (malformed address; Brevo HTTP 400 other than account errors; SMTP 5xx about the address or message). The job queue marks such a job failed at once instead of retrying (ED-35). Everything else — network errors, timeouts, rate limits (429), server errors, credentials or credit problems — is `EmailDeliveryException` and is retried. Exception messages carry the status and error code only, never addresses, response bodies or keys.
+  - **Brevo specifics:** Brevo requires HTML, so plain-text emails also get an escaped HTML copy (paragraphs and line breaks kept, links left as text for the mail client to link). Bulk is one request with one `messageVersions` entry per recipient; if Brevo refuses the batch as a whole, the adapter falls back to one request per recipient so only the bad ones fail. Brevo documents no idempotency, so a retry after a lost response can send a second email; for invitations only the newest link works (ED-35).
+  - **Development and beta use different adapters:** Mailpit speaks SMTP only, so local runs exercise the SMTP adapter, while the Brevo adapter is tested against a local fake of Brevo's API (request shape, error mapping, bulk fallback). The first real check of the Brevo adapter is a test send from the owner's Brevo account before the first invitation.
+  - **Sensitive content at the provider:** any provider keeps sent messages in its logs for a while, including invitation links. Accepted because a link works once, expires in 14 days and only for the invited verified email (ED-29); revoking an invitation disables its link.
+  - **Message details:** UTF-8; plain text, or text plus HTML; over SMTP, `Auto-Submitted: auto-generated` on every message and `Precedence: bulk` on bulk; 10-second connect and 30-second request timeouts; at most 1,000 recipients per bulk call.
+- **Configuration (ED-23):** `SEEBROOK_EMAIL_MODE` (`smtp` | `brevo` | `disabled`; default `smtp` in development, `disabled` elsewhere). Common: `SEEBROOK_EMAIL_FROM` (e.g. `Seebrook <no-reply@seebrook.cc>`), optional `SEEBROOK_EMAIL_REPLY_TO`. Brevo: `SEEBROOK_BREVO_API_KEY` (never logged), optional `SEEBROOK_BREVO_API_URL` (https; default `https://api.brevo.com/v3`). SMTP: `SEEBROOK_SMTP_HOST`, `SEEBROOK_SMTP_PORT`, `SEEBROOK_SMTP_SECURITY` (`starttls` | `tls` | `none`; `none` refused in production), `SEEBROOK_SMTP_USERNAME` and `SEEBROOK_SMTP_PASSWORD` (together; never logged). Development defaults to Mailpit at `localhost:1025`.
+- **Libraries:** Eclipse Angus Mail 2.0.5 (the Jakarta Mail reference implementation) for SMTP; the JDK HTTP client and kotlinx.serialization for Brevo, so no provider SDK.
+- **Alternatives considered:** SMTP for every provider — one adapter and the same path in development, but fails on hosts that block SMTP ports and cannot tell permanent from temporary failures as reliably; kept as the fallback. Provider SDKs — more dependencies for a single API call. Provider-hosted templates — rejected by owner: content would be locked into the provider. Writing local email to files — Mailpit shows real rendered messages and exercises the SMTP path.
+
 ---
 
 ## Change log
@@ -429,3 +466,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-14 — M1: added ED-29 (sign-in and invitation rules; development tokens instead of the Firebase emulator; amends ED-28 item 7) and ED-30 (automated schema-ownership check, fulfilling ED-21).
 - 2026-11-14 — M2: added ED-31 (owner is sole Root and operator; admin commands), ED-32 (roles and permissions) and ED-33 (append-only audit trail). Resolved the admin operators pending item.
 - 2026-11-14 — M2: added ED-34 (owner CSV import; invitations start unsent, amending ED-29).
+- 2026-11-15 — M2: added ED-35 (invitation delivery through the job outbox; worker thread amends ED-06; tokens created at each send, amending ED-29) and ED-36 (provider-neutral email gateway; owner chose Mailpit for development, Brevo's HTTP API for the beta, Postmark or Resend later). Replaced the email provider pending item with the Brevo account and domain setup.

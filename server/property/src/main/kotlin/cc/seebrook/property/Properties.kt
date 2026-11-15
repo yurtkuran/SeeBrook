@@ -52,6 +52,11 @@ object Properties {
             )
         }
 
+    fun unitLabel(tx: DSLContext, hoaId: UUID, propertyId: UUID): String? =
+        tx.select(PROPERTY.UNIT_LABEL).from(PROPERTY)
+            .where(PROPERTY.HOA_ID.eq(hoaId)).and(PROPERTY.ID.eq(propertyId))
+            .fetchOne(PROPERTY.UNIT_LABEL)
+
     fun create(tx: DSLContext, hoaId: UUID, input: PropertyInput): UUID {
         require(input.problems().isEmpty()) { "invalid property input" }
         return requireNotNull(

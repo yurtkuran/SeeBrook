@@ -11,7 +11,7 @@ Prerequisites: Eclipse Temurin JDK 21, Docker.
 ```bash
 git config core.hooksPath .githooks   # once per clone: blocks direct commits/pushes to develop and master
 
-scripts/dev.sh            # start PostgreSQL, migrate, load synthetic Channel Harbor data, serve on :8088
+scripts/dev.sh            # start PostgreSQL and Mailpit, migrate, load synthetic Channel Harbor data, serve on :8088
 curl localhost:8088/health/ready
 scripts/dev.sh down       # stop the local database (scripts/dev.sh reset also deletes its data)
 
@@ -43,7 +43,14 @@ seebrook grant-role --operator <email> --user <email> --role hoa_admin --hoa cha
 seebrook revoke-role --operator <email> --user <email> --role hoa_admin --hoa channel-harbor --reason "<why>"
 seebrook import-owners --operator <email> --hoa channel-harbor --file owners.csv               # dry run
 seebrook import-owners --operator <email> --hoa channel-harbor --file owners.csv --commit --reason "<why>"
+seebrook send-invitations --operator <email> --hoa channel-harbor [--unit "Unit 07"]          # dry run
+seebrook send-invitations --operator <email> --hoa channel-harbor [--unit "Unit 07"] --commit
+seebrook list-invitations --operator <email> --hoa channel-harbor
+seebrook resend-invitation --operator <email> --hoa channel-harbor --unit "Unit 07" --email <owner>
+seebrook revoke-invitation --operator <email> --hoa channel-harbor --unit "Unit 07" --email <owner> --reason "<why>"
 ```
+
+The server sends queued invitation emails in the background (`seebrook run-jobs` sends them without a server). Locally, every email is caught by Mailpit — open http://localhost:8025 to read it and copy the invitation code; nothing is sent to real addresses. In production, emails stay queued until email is configured (ED-35, ED-36).
 
 A synthetic example roster is in `server/app/src/main/resources/dev-fixtures/channel-harbor/owners.csv` (ED-34 describes the format).
 
@@ -61,7 +68,7 @@ Run `seebrook help` for every command.
 ├── shared/                 Kotlin Multiplatform: API client, DTOs, input checks (ED-08, ED-15, ED-17)
 ├── server/                 Kotlin/Ktor backend — one deployable (ED-13)
 │   ├── app/                Entry point, HTTP routes, admin CLI
-│   ├── platform/           Configuration, DB access, token verification, roles, audit
+│   ├── platform/           Configuration, DB access, token verification, roles, audit, jobs, email
 │   ├── db/                 Flyway migrations and generated jOOQ classes (ED-21)
 │   ├── tenant/ identity/ property/   Services built so far (ED-13)
 │   └── <service>/          ledger, assessment, payment, document (later milestones)

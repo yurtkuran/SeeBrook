@@ -59,4 +59,29 @@ class AdminCommandsTest {
         shouldThrow<CommandException> { commands.bootstrapRoot(listOf("--email", "x@example.test")) }
             .message shouldContain "already exists"
     }
+
+    @Test
+    fun `invitation commands dry run, queue, list, resend and revoke`() {
+        Fixtures.hoa(db, "channel-harbor")
+        commands.bootstrapRoot(listOf("--email", "root@example.test"))
+        val file = kotlin.io.path.createTempFile(suffix = ".csv").toFile().apply {
+            writeText(
+                "unit_label,address_line1,address_line2,city,state_code,postal_code,owner_email,owner_name\n" +
+                    "Unit 1,1 Harbor Dr,,Ocean Isle Beach,NC,28469,owner1@example.test,\n",
+            )
+            deleteOnExit()
+        }
+        val who = listOf("--operator", "root@example.test", "--hoa", "channel-harbor")
+        commands.importOwners(who + listOf("--file", file.path, "--commit", "--reason", "Roster"))
+
+        commands.sendInvitations(who) shouldContain "Dry run"
+        commands.sendInvitations(who + "--commit") shouldContain "Queued 1 invitation email;"
+        commands.listInvitations(who) shouldContain "Unit 1  owner1@example.test  queued"
+        val one = who + listOf("--unit", "Unit 1", "--email", "owner1@example.test")
+        commands.resendInvitation(one) shouldContain "already queued"
+        shouldThrow<CommandException> { commands.revokeInvitation(one) }.exitCode shouldBe 2
+        commands.revokeInvitation(one + listOf("--reason", "Sold")) shouldContain "Revoked"
+        commands.listInvitations(who) shouldContain "revoked"
+        shouldThrow<CommandException> { commands.resendInvitation(one) }.message shouldContain "No pending invitation"
+    }
 }

@@ -58,8 +58,8 @@ internal fun Instant.toDb(): OffsetDateTime = atOffset(ZoneOffset.UTC)
  * Creates an owner invitation for one property and email, revoking any earlier pending one
  * (a resend). The raw token is returned once and never stored.
  *
- * Internal building block: in M1 only development tooling calls it. M2 wraps it in an operator
- * action with authorization, audit and email delivery (`InviteHomeowner`).
+ * Development and tests only (`dev-invite`): it returns the token instead of emailing it. Operators
+ * send invitations with [SendInvitations] / [ResendInvitation], delivered by [DeliverInvitation].
  */
 class IssueInvitation(private val db: Database, private val clock: Clock = Clock.systemUTC()) {
     data class Issued(val invitationId: UUID, val token: String, val expiresAt: Instant)

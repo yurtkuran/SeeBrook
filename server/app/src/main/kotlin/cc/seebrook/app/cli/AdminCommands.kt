@@ -3,6 +3,10 @@ package cc.seebrook.app.cli
 import cc.seebrook.identity.BootstrapRoot
 import cc.seebrook.identity.GrantRole
 import cc.seebrook.identity.ImportOwners
+import cc.seebrook.identity.ListInvitations
+import cc.seebrook.identity.ResendInvitation
+import cc.seebrook.identity.RevokeInvitation
+import cc.seebrook.identity.SendInvitations
 import cc.seebrook.identity.ResolveOperator
 import cc.seebrook.identity.RevokeRole
 import cc.seebrook.platform.auth.Role
@@ -116,6 +120,69 @@ class AdminCommands(private val db: Database) {
             )
             ImportOwners.Result.Forbidden -> throw CommandException("Operator may not manage membership in this HOA")
             ImportOwners.Result.ReasonRequired -> throw CommandException("--commit requires --reason (up to 1000 characters)", 2)
+        }
+    }
+
+    fun sendInvitations(args: List<String>): String {
+        val o = parseOptions(args.filter { it != "--commit" }, setOf("operator", "hoa", "unit", "reason"))
+        val commit = "--commit" in args
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        return when (val result = SendInvitations(db)(operator(o.required("operator")), hoaId, o["unit"], commit, o["reason"])) {
+            is SendInvitations.Result.Planned -> buildString {
+                appendLine("Dry run — nothing was sent. Invitations that would be emailed: ${result.targets.size}")
+                result.targets.forEach { appendLine("    ${it.unitLabel}: ${it.email}") }
+                if (result.targets.isNotEmpty()) append("Re-run with --commit to queue these emails.")
+            }.trimEnd()
+            is SendInvitations.Result.Queued -> buildString {
+                appendLine("Queued ${result.targets.size} invitation email${if (result.targets.size == 1) "" else "s"}; the server sends them shortly (or run run-jobs).")
+                result.targets.forEach { appendLine("    ${it.unitLabel}: ${it.email}") }
+            }.trimEnd()
+            SendInvitations.Result.UnitNotFound -> throw CommandException("No unit '${o["unit"]}' in this HOA")
+            SendInvitations.Result.Forbidden -> throw CommandException("Operator may not manage membership in this HOA")
+        }
+    }
+
+    fun resendInvitation(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "unit", "email", "reason"))
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        val result = ResendInvitation(db)(operator(o.required("operator")), hoaId, o.required("unit"), o.required("email"), o["reason"])
+        return when (result) {
+            is ResendInvitation.Result.Queued ->
+                "Queued a new invitation email to ${o["email"]}; its earlier link stops working once it is sent."
+            ResendInvitation.Result.AlreadyQueued -> "An email to ${o["email"]} is already queued; nothing changed"
+            ResendInvitation.Result.NotFound ->
+                throw CommandException("No pending invitation for ${o["email"]} at ${o["unit"]} (accepted, revoked or never invited)")
+            ResendInvitation.Result.Forbidden -> throw CommandException("Operator may not manage membership in this HOA")
+        }
+    }
+
+    fun revokeInvitation(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "unit", "email", "reason"))
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        val result = RevokeInvitation(db)(operator(o.required("operator")), hoaId, o.required("unit"), o.required("email"), o["reason"])
+        return when (result) {
+            is RevokeInvitation.Result.Revoked -> "Revoked the invitation for ${o["email"]} at ${o["unit"]}; its link no longer works"
+            RevokeInvitation.Result.NotFound ->
+                throw CommandException("No pending invitation for ${o["email"]} at ${o["unit"]}")
+            RevokeInvitation.Result.Forbidden -> throw CommandException("Operator may not manage membership in this HOA")
+            RevokeInvitation.Result.ReasonRequired -> throw CommandException("--reason is required (up to 1000 characters)", 2)
+        }
+    }
+
+    fun listInvitations(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa"))
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        return when (val result = ListInvitations(db)(operator(o.required("operator")), hoaId)) {
+            is ListInvitations.Result.Listed -> if (result.rows.isEmpty()) {
+                "No invitations"
+            } else {
+                result.rows.joinToString("\n") { r ->
+                    val sent = r.sentAt?.let { " sent $it" }.orEmpty()
+                    val expires = r.expiresAt?.takeIf { r.state == ListInvitations.State.SENT }?.let { ", expires $it" }.orEmpty()
+                    "${r.unitLabel}  ${r.email}  ${r.state.name.lowercase()}$sent$expires"
+                }
+            }
+            ListInvitations.Result.Forbidden -> throw CommandException("Operator may not manage membership in this HOA")
         }
     }
 

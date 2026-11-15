@@ -103,4 +103,70 @@ class AppConfigTest {
         )
         config.auth.toString() shouldNotContain "x".repeat(40)
     }
+
+    @Test
+    fun `development email goes to the local Mailpit and production email is off until configured`() {
+        val dev = AppConfig.fromEnvironment(mapOf("SEEBROOK_ENV" to "development")).email.shouldBeInstanceOf<EmailConfig.Smtp>()
+        dev.smtp.host shouldBe "localhost"
+        dev.smtp.port shouldBe 1025
+        dev.smtp.security shouldBe SmtpSecurity.NONE
+        AppConfig.fromEnvironment(productionDb + ("SEEBROOK_FIREBASE_PROJECT_ID" to "seebrook-prod")).email shouldBe
+            EmailConfig.Disabled
+        AppConfig.fromEnvironment(productionDb + ("SEEBROOK_ENV" to "test")).email shouldBe EmailConfig.Disabled
+    }
+
+    @Test
+    fun `production SMTP needs explicit settings and encryption, and hides the password`() {
+        val prod = productionDb + mapOf("SEEBROOK_FIREBASE_PROJECT_ID" to "seebrook-prod", "SEEBROOK_EMAIL_MODE" to "smtp")
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(prod) }.message shouldContain "SEEBROOK_EMAIL_FROM"
+
+        val relay = prod + mapOf(
+            "SEEBROOK_EMAIL_FROM" to "Seebrook <no-reply@seebrook.cc>",
+            "SEEBROOK_SMTP_HOST" to "smtp.example.test",
+            "SEEBROOK_SMTP_USERNAME" to "user",
+            "SEEBROOK_SMTP_PASSWORD" to "smtp-secret-value",
+        )
+        val email = AppConfig.fromEnvironment(relay).email.shouldBeInstanceOf<EmailConfig.Smtp>()
+        email.smtp.security shouldBe SmtpSecurity.STARTTLS
+        email.smtp.port shouldBe 587
+        email.toString() shouldNotContain "smtp-secret-value"
+
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(relay + ("SEEBROOK_SMTP_SECURITY" to "none")) }
+            .message shouldContain "not allowed in production"
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(relay - "SEEBROOK_SMTP_PASSWORD") }
+            .message shouldContain "set together"
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(relay + ("SEEBROOK_EMAIL_FROM" to "not an address")) }
+        AppConfig.fromEnvironment(relay + ("SEEBROOK_SMTP_SECURITY" to "tls")).email
+            .shouldBeInstanceOf<EmailConfig.Smtp>().smtp.port shouldBe 465
+    }
+
+    @Test
+    fun `invitation links must be https, except localhost outside production`() {
+        val dev = mapOf("SEEBROOK_ENV" to "development")
+        AppConfig.fromEnvironment(dev).inviteLinkBase shouldBe "https://seebrook.cc/invite"
+        AppConfig.fromEnvironment(dev + ("SEEBROOK_INVITE_LINK_BASE" to "http://localhost:8080/invite"))
+            .inviteLinkBase shouldBe "http://localhost:8080/invite"
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(dev + ("SEEBROOK_INVITE_LINK_BASE" to "http://example.test/invite")) }
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(dev + ("SEEBROOK_INVITE_LINK_BASE" to "https://seebrook.cc/invite#x")) }
+        shouldThrow<ConfigException> {
+            AppConfig.fromEnvironment(
+                productionDb + mapOf(
+                    "SEEBROOK_FIREBASE_PROJECT_ID" to "seebrook-prod",
+                    "SEEBROOK_INVITE_LINK_BASE" to "http://localhost:8080/invite",
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `Brevo mode needs an API key and sender, and hides the key`() {
+        val prod = productionDb + mapOf("SEEBROOK_FIREBASE_PROJECT_ID" to "seebrook-prod", "SEEBROOK_EMAIL_MODE" to "brevo")
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(prod) }.message shouldContain "SEEBROOK_BREVO_API_KEY"
+
+        val brevo = prod + mapOf("SEEBROOK_BREVO_API_KEY" to "xkeysib-secret-value", "SEEBROOK_EMAIL_FROM" to "Seebrook <no-reply@seebrook.cc>")
+        val email = AppConfig.fromEnvironment(brevo).email.shouldBeInstanceOf<EmailConfig.Brevo>()
+        email.baseUrl shouldBe "https://api.brevo.com/v3"
+        email.toString() shouldNotContain "xkeysib-secret-value"
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(brevo + ("SEEBROOK_BREVO_API_URL" to "http://api.example.test")) }
+    }
 }

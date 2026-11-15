@@ -53,6 +53,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-37 | Ownership transfer: set a unit's owners atomically; access ends on the next request | Accepted | 2026-11-15 |
 | ED-38 | Document storage, upload checks and ClamAV malware scanning | Accepted | 2026-11-15 |
 | ED-39 | Owner document library API | Accepted | 2026-11-15 |
+| ED-40 | Document administration: replace, archive, restore, version rollback, categories | Accepted | 2026-11-15 |
 
 ## Pending decisions
 
@@ -495,6 +496,19 @@ Each exception must state what it is, why it cannot live solely in the backend, 
   - **Storage disabled:** listing still works; links answer `503 documents_unavailable`.
 - **Alternatives considered:** Streaming PDFs through the API — keeps files off the public internet entirely, but the requirements call for signed URLs and it would load the single server. Cursor pagination — more robust under concurrent changes, but page numbers suit a small, rarely-changing library and the requirement for server pagination. Longer-lived links — fewer refreshes, but a leaked link would stay valid longer; clients request a fresh link per open.
 
+## ED-40 — Document administration: replace, archive, restore, version rollback, categories
+- **Status:** Accepted · **Date:** 2026-11-15 · **Decided by:** engineering · **Related:** GA-11, GA-13, ED-32, ED-38, ED-39
+- **Decision:**
+  - **Replace (GA-11):** a new PDF for an existing document goes through the same checks, quarantine and scan as an upload. Owners keep seeing the current version until the new one is clean, which then becomes current; a rejected replacement leaves the current version in place. One replacement at a time per document, so versions cannot overtake each other. An archived document must be restored first. A document whose first upload was rejected can be uploaded again this way.
+  - **Archive and restore:** archiving hides a published document from owners at once (list, details and new download links); restoring shows it again with its current version. Archived documents are kept indefinitely (requirements). Both need a reason.
+  - **Version rollback (GA-11):** any earlier clean version of the same document can be made current again, with a reason. Newer versions are kept, so a rollback can itself be undone. Refused while a replacement is being scanned, as finishing it would silently override the rollback.
+  - **Never deleted:** documents, versions and published files are kept; only rejected files are removed (ED-38). The upload date owners see is the current version's.
+  - **Details:** title, description, tags, document date and category can be edited without a new version; the audit event holds the values before and after.
+  - **Categories (GA-13):** renaming keeps the category's ID, so its documents are unaffected; names stay unique per HOA ignoring case (a case-only rename is allowed). Reassigning moves every document of a category, in every status, to another. A category can be deleted only when it holds no document of any status, archived, rejected and processing included; the check locks the category so a concurrent upload or move into it cannot slip past. The category row is removed; the audit event keeps its name and ID.
+  - **Access and audit:** all need "manage documents" in the HOA (ED-32), look documents and categories up within that HOA only, lock the document while changing it, and are audited (`document.replacement_uploaded`, `document.archived`, `document.restored`, `document.version_restored`, `document.details_updated`, `document.category_renamed`, `document.category_reassigned`, `document.category_deleted`).
+  - **Commands:** `replace-document`, `update-document`, `archive-document`, `restore-document`, `list-versions`, `restore-version`, `rename-category`, `reassign-documents`, `delete-category`. Documents are named by ID, which `list-documents` now shows.
+- **Alternatives considered:** Deleting a category with documents still in it by moving them automatically — hides a decision the administrator should make. Allowing several pending replacements — whichever scan finished last would win, which is confusing. Soft-deleting categories — nothing references a deleted category, and the audit trail already keeps the record.
+
 ---
 
 ## Change log
@@ -515,3 +529,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-15 — M2: added ED-37 (ownership transfer).
 - 2026-11-15 — M3: added ED-38 (S3-compatible private storage, upload checks, ClamAV scanning chosen by owner). Resolved the malware scanning pending item; updated the storage provider item.
 - 2026-11-15 — M3: added ED-39 (owner document library API: access from active property ownership, search, sort, pagination, audited 5-minute download links).
+- 2026-11-15 — M3: added ED-40 (document administration: replace, archive, restore, version rollback, detail edits, category rename, reassign and delete when empty). Completes M3.

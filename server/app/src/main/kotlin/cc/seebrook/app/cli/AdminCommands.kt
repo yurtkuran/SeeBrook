@@ -1,6 +1,16 @@
 package cc.seebrook.app.cli
 
+import cc.seebrook.document.ArchiveDocument
 import cc.seebrook.document.CreateCategory
+import cc.seebrook.document.DeleteCategory
+import cc.seebrook.document.DetailChanges
+import cc.seebrook.document.ListVersions
+import cc.seebrook.document.ReassignDocuments
+import cc.seebrook.document.RenameCategory
+import cc.seebrook.document.ReplaceDocument
+import cc.seebrook.document.RestoreDocument
+import cc.seebrook.document.RestoreVersion
+import cc.seebrook.document.UpdateDocumentDetails
 import cc.seebrook.document.DocumentDetails
 import cc.seebrook.document.ListCategories
 import cc.seebrook.document.ListDocumentsForAdmin
@@ -241,17 +251,9 @@ class AdminCommands(
 
     fun uploadDocument(args: List<String>): String {
         val o = parseOptions(args, setOf("operator", "hoa", "category", "title", "description", "tags", "document-date", "file"))
-        val storage = storage ?: throw CommandException("Document storage is not configured (SEEBROOK_STORAGE_MODE)")
-        val path = Path.of(o.required("file"))
-        if (!Files.isRegularFile(path)) throw CommandException("No file at $path")
-        if (Files.size(path) > maxDocumentBytes) throw CommandException("File is larger than ${maxDocumentBytes / (1024 * 1024)} MB")
-        val date = o["document-date"]?.let {
-            try {
-                LocalDate.parse(it)
-            } catch (_: DateTimeParseException) {
-                throw CommandException("--document-date must be YYYY-MM-DD", 2)
-            }
-        }
+        val storage = requireStorage()
+        val path = pdfFile(o.required("file"))
+        val date = o["document-date"]?.let(::date)
         val details = DocumentDetails(
             title = o.required("title"),
             description = o.required("description"),
@@ -280,9 +282,175 @@ class AdminCommands(
         return when (val result = ListDocumentsForAdmin(db)(operator(o.required("operator")), hoaId)) {
             is ListDocumentsForAdmin.Result.Listed -> result.rows.joinToString("\n") { r ->
                 val rejected = r.rejectionReason?.let { " — rejected: $it" }.orEmpty()
-                "${r.category}  ${r.title}  ${r.status}$rejected"
+                "${r.documentId}  ${r.category}  ${r.title}  ${r.status}$rejected"
             }.ifEmpty { "No documents" }
             ListDocumentsForAdmin.Result.Forbidden -> throw CommandException("Operator may not manage documents in this HOA")
+        }
+    }
+
+    private fun requireStorage(): ObjectStorage =
+        storage ?: throw CommandException("Document storage is not configured (SEEBROOK_STORAGE_MODE)")
+
+    private fun pdfFile(name: String): Path {
+        val path = Path.of(name)
+        if (!Files.isRegularFile(path)) throw CommandException("No file at $path")
+        if (Files.size(path) > maxDocumentBytes) throw CommandException("File is larger than ${maxDocumentBytes / (1024 * 1024)} MB")
+        return path
+    }
+
+    private fun date(value: String): LocalDate = try {
+        LocalDate.parse(value)
+    } catch (_: DateTimeParseException) {
+        throw CommandException("--document-date must be YYYY-MM-DD (or 'none' to clear it)", 2)
+    }
+
+    private fun uuid(name: String, value: String): UUID =
+        runCatching { UUID.fromString(value) }.getOrNull() ?: throw CommandException("--$name must be an ID (see list-documents)", 2)
+
+    private val noDocument = "No such document in this HOA (see list-documents)"
+    private val forbiddenDocuments = "Operator may not manage documents in this HOA"
+    private val reasonRequired = "--reason is required (up to 1000 characters)"
+
+    fun replaceDocument(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "document", "file"))
+        val storage = requireStorage()
+        val path = pdfFile(o.required("file"))
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        val result = ReplaceDocument(db, storage, maxDocumentBytes)(
+            operator(o.required("operator")), hoaId, uuid("document", o.required("document")),
+            path.fileName.toString(), Files.readAllBytes(path),
+        )
+        return when (result) {
+            is ReplaceDocument.Result.Uploaded ->
+                "Uploaded a new version (${result.pageCount} pages). Owners keep seeing the current version until the " +
+                    "scan passes; then the new one replaces it. Check with list-versions."
+            is ReplaceDocument.Result.InvalidFile -> throw CommandException("Not uploaded: ${result.reason}")
+            ReplaceDocument.Result.Archived -> throw CommandException("The document is archived; restore it first")
+            ReplaceDocument.Result.AlreadyProcessing -> throw CommandException("A new version of this document is still being scanned")
+            ReplaceDocument.Result.NotFound -> throw CommandException(noDocument)
+            ReplaceDocument.Result.Forbidden -> throw CommandException(forbiddenDocuments)
+        }
+    }
+
+    fun archiveDocument(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "document", "reason"))
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        return when (val result = ArchiveDocument(db)(operator(o.required("operator")), hoaId, uuid("document", o.required("document")), o["reason"])) {
+            ArchiveDocument.Result.Archived -> "Archived; owners no longer see it. restore-document brings it back."
+            is ArchiveDocument.Result.NotPublished -> throw CommandException("Only published documents can be archived (this one is ${result.status})")
+            ArchiveDocument.Result.NotFound -> throw CommandException(noDocument)
+            ArchiveDocument.Result.ReasonRequired -> throw CommandException(reasonRequired, 2)
+            ArchiveDocument.Result.Forbidden -> throw CommandException(forbiddenDocuments)
+        }
+    }
+
+    fun restoreDocument(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "document", "reason"))
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        return when (val result = RestoreDocument(db)(operator(o.required("operator")), hoaId, uuid("document", o.required("document")), o["reason"])) {
+            RestoreDocument.Result.Restored -> "Restored; owners see it again."
+            is RestoreDocument.Result.NotArchived -> throw CommandException("Only archived documents can be restored (this one is ${result.status})")
+            RestoreDocument.Result.NotFound -> throw CommandException(noDocument)
+            RestoreDocument.Result.ReasonRequired -> throw CommandException(reasonRequired, 2)
+            RestoreDocument.Result.Forbidden -> throw CommandException(forbiddenDocuments)
+        }
+    }
+
+    fun listVersions(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "document"))
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        return when (val result = ListVersions(db)(operator(o.required("operator")), hoaId, uuid("document", o.required("document")))) {
+            is ListVersions.Result.Listed -> buildString {
+                appendLine("${result.title} (${result.status})")
+                result.versions.forEach { v ->
+                    val marker = if (v.isCurrent) "* current" else ""
+                    val rejected = v.rejectionReason?.let { " — rejected: $it" }.orEmpty()
+                    appendLine("  ${v.versionId}  ${v.uploadedAt.toLocalDate()}  ${v.state}  ${v.pageCount} pages  ${v.fileName}  $marker$rejected".trimEnd())
+                }
+            }.trimEnd()
+            ListVersions.Result.NotFound -> throw CommandException(noDocument)
+            ListVersions.Result.Forbidden -> throw CommandException(forbiddenDocuments)
+        }
+    }
+
+    fun restoreVersion(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "document", "version", "reason"))
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        val result = RestoreVersion(db)(
+            operator(o.required("operator")), hoaId, uuid("document", o.required("document")), uuid("version", o.required("version")), o["reason"],
+        )
+        return when (result) {
+            RestoreVersion.Result.Restored -> "That version is now current. Newer versions are kept and can be restored the same way."
+            RestoreVersion.Result.AlreadyCurrent -> "That version is already current; nothing changed"
+            RestoreVersion.Result.VersionNotFound -> throw CommandException("No such version of this document (see list-versions)")
+            is RestoreVersion.Result.VersionNotClean -> throw CommandException("Only clean versions can be restored (this one is ${result.state})")
+            is RestoreVersion.Result.NotPublished -> throw CommandException("The document has no published version yet (it is ${result.status})")
+            RestoreVersion.Result.AlreadyProcessing -> throw CommandException("A new version is still being scanned; try again once it finishes")
+            RestoreVersion.Result.NotFound -> throw CommandException(noDocument)
+            RestoreVersion.Result.ReasonRequired -> throw CommandException(reasonRequired, 2)
+            RestoreVersion.Result.Forbidden -> throw CommandException(forbiddenDocuments)
+        }
+    }
+
+    fun updateDocument(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "document", "title", "description", "tags", "document-date", "category"))
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        val dateOption = o["document-date"]
+        val changes = DetailChanges(
+            title = o["title"],
+            description = o["description"],
+            tags = o["tags"]?.let { if (it == "none") emptyList() else it.split(',') },
+            documentDate = dateOption?.takeIf { it != "none" }?.let(::date),
+            clearDocumentDate = dateOption == "none",
+            categoryName = o["category"],
+        )
+        if (changes.isEmpty) throw CommandException("Give at least one of --title, --description, --tags, --document-date, --category", 2)
+        val result = UpdateDocumentDetails(db)(operator(o.required("operator")), hoaId, uuid("document", o.required("document")), changes)
+        return when (result) {
+            UpdateDocumentDetails.Result.Updated -> "Updated"
+            UpdateDocumentDetails.Result.NoChange -> "Nothing changed"
+            is UpdateDocumentDetails.Result.InvalidDetails ->
+                throw CommandException("Not updated: " + result.problems.joinToString("; ") { "${it.first} ${it.second}" }, 2)
+            UpdateDocumentDetails.Result.CategoryNotFound -> throw CommandException("No category '${o["category"]}' (see list-categories)")
+            UpdateDocumentDetails.Result.NotFound -> throw CommandException(noDocument)
+            UpdateDocumentDetails.Result.Forbidden -> throw CommandException(forbiddenDocuments)
+        }
+    }
+
+    fun renameCategory(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "name", "to"))
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        return when (RenameCategory(db)(operator(o.required("operator")), hoaId, o.required("name"), o.required("to"))) {
+            RenameCategory.Result.Renamed -> "Renamed '${o["name"]}' to '${o["to"]?.trim()}'"
+            RenameCategory.Result.NotFound -> throw CommandException("No category '${o["name"]}' (see list-categories)")
+            RenameCategory.Result.AlreadyExists -> throw CommandException("A category named '${o["to"]}' already exists")
+            RenameCategory.Result.InvalidName -> throw CommandException("Category names are 1 to 100 characters", 2)
+            RenameCategory.Result.Forbidden -> throw CommandException(forbiddenDocuments)
+        }
+    }
+
+    fun reassignDocuments(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "from", "to"))
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        return when (val result = ReassignDocuments(db)(operator(o.required("operator")), hoaId, o.required("from"), o.required("to"))) {
+            is ReassignDocuments.Result.Moved -> "Moved ${result.count} document(s) from '${o["from"]}' to '${o["to"]}'"
+            ReassignDocuments.Result.SameCategory -> throw CommandException("--from and --to are the same category", 2)
+            is ReassignDocuments.Result.CategoryNotFound -> throw CommandException("No category '${result.name}' (see list-categories)")
+            ReassignDocuments.Result.Forbidden -> throw CommandException(forbiddenDocuments)
+        }
+    }
+
+    fun deleteCategory(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "name", "reason"))
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        return when (val result = DeleteCategory(db)(operator(o.required("operator")), hoaId, o.required("name"), o["reason"])) {
+            DeleteCategory.Result.Deleted -> "Deleted category '${o["name"]}'"
+            is DeleteCategory.Result.NotEmpty -> throw CommandException(
+                "'${o["name"]}' still holds ${result.documents} document(s), archived ones included; move them first with reassign-documents",
+            )
+            DeleteCategory.Result.NotFound -> throw CommandException("No category '${o["name"]}' (see list-categories)")
+            DeleteCategory.Result.ReasonRequired -> throw CommandException(reasonRequired, 2)
+            DeleteCategory.Result.Forbidden -> throw CommandException(forbiddenDocuments)
         }
     }
 

@@ -159,7 +159,7 @@ fun main(args: Array<String>) {
                 }
                 log.info("Auth: {} (project {})", if (config.auth is AuthConfig.Firebase) "Firebase" else "development tokens", config.auth.projectId)
                 try {
-                    embeddedServer(Netty, port = config.httpPort) { seebrookModule(db, verifier) }
+                    embeddedServer(Netty, port = config.httpPort) { seebrookModule(db, verifier, BackgroundJobs.storage(config)) }
                         .start(wait = true)
                 } finally {
                     worker?.close()

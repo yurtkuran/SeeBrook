@@ -39,15 +39,15 @@ class AccountActions(db: Database) {
 }
 
 /** JDBC calls block, so actions run on the IO dispatcher. */
-private suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) { block() }
+internal suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) { block() }
 
-private suspend fun RoutingCall.error(status: HttpStatusCode, code: String) = respond(status, ErrorResponse(code))
+internal suspend fun RoutingCall.error(status: HttpStatusCode, code: String) = respond(status, ErrorResponse(code))
 
-private fun RoutingCall.identity(): VerifiedIdentity =
+internal fun RoutingCall.identity(): VerifiedIdentity =
     checkNotNull(principal<VerifiedIdentity>()) { "route is not behind authentication" }
 
 /** Resolves the registered, active user for this request, or responds 403 and returns null. */
-private suspend fun RoutingCall.requireUser(actions: AccountActions): UserActor? =
+internal suspend fun RoutingCall.requireUser(actions: AccountActions): UserActor? =
     when (val result = io { actions.resolveUser(identity()) }) {
         is ResolveUser.Result.Active -> result.actor
         ResolveUser.Result.NotRegistered -> null.also { error(HttpStatusCode.Forbidden, "not_registered") }

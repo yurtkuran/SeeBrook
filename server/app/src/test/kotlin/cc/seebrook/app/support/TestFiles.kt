@@ -6,6 +6,7 @@ import org.apache.pdfbox.pdmodel.PDDocument
 import org.apache.pdfbox.pdmodel.PDPage
 import java.io.ByteArrayOutputStream
 import java.net.URI
+import java.net.URLEncoder
 import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
 
@@ -44,5 +45,5 @@ class MemoryStorage : ObjectStorage {
     }
 
     override fun signedDownloadUrl(key: String, validFor: Duration, fileName: String): URI =
-        URI("https://storage.test/$key?expires=${validFor.seconds}&name=$fileName")
+        URI("https://storage.test/$key?expires=${validFor.seconds}&name=${URLEncoder.encode(fileName, Charsets.UTF_8)}")
 }

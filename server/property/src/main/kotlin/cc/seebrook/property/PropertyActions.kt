@@ -77,6 +77,18 @@ object Ownerships {
             .execute() == 1
 
     /**
+     * True when the user actively owns at least one property in the HOA: the basis of HOA-wide
+     * owner access such as the document library (GA-10). Ended ownerships grant nothing.
+     */
+    fun hasActivePropertyIn(tx: DSLContext, hoaId: UUID, userId: UUID): Boolean =
+        tx.fetchExists(
+            tx.selectOne().from(OWNERSHIP)
+                .where(OWNERSHIP.HOA_ID.eq(hoaId))
+                .and(OWNERSHIP.USER_ID.eq(userId))
+                .and(OWNERSHIP.ENDED_AT.isNull),
+        )
+
+    /**
      * User IDs of the property's active owners. With [lock], the rows are locked until the
      * transaction ends, so a concurrent acceptance or transfer of the same unit waits.
      */

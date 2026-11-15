@@ -21,5 +21,6 @@ include(
     ":server:tenant",
     ":server:property",
     ":server:identity",
+    ":server:document",
     ":server:app",
 )

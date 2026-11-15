@@ -48,13 +48,21 @@ Admin commands (audited; ED-31):
   transfer-ownership --operator <email> --hoa <slug> --unit <label> --to <email>[,<email>...] [--commit --reason <text>]
                              Make the listed people the unit's owners: others lose access at once, their pending
                              invitations are revoked, new people are invited (dry run by default).
+  create-category --operator <email> --hoa <slug> --name <name>
+  list-categories --operator <email> --hoa <slug>
+  upload-document --operator <email> --hoa <slug> --category <name> --title <text> --description <text>
+                  --file <pdf> [--tags <a,b>] [--document-date YYYY-MM-DD]
+                             Check and upload a PDF; it is published after a clean malware scan.
+  list-documents --operator <email> --hoa <slug>
+                             Show every document and its state (processing, published, archived, rejected).
 
 Background jobs:
-  run-jobs                   Run queued jobs now (e.g. invitation emails) and exit. `serve` runs them continuously."""
+  run-jobs                   Run queued jobs now (invitation emails, document scans) and exit. `serve` runs them continuously."""
 
 private val ADMIN_COMMANDS = setOf(
     "bootstrap-root", "grant-role", "revoke-role", "import-owners",
     "send-invitations", "resend-invitation", "revoke-invitation", "list-invitations", "transfer-ownership",
+    "create-category", "list-categories", "upload-document", "list-documents",
 )
 
 private fun usage(): Nothing {
@@ -108,7 +116,7 @@ fun main(args: Array<String>) {
                 println(issued.token)
             }
             in ADMIN_COMMANDS -> {
-                val admin = AdminCommands(db)
+                val admin = AdminCommands(db, BackgroundJobs.storage(config), config.documentMaxBytes)
                 val output = try {
                     when (command) {
                         "bootstrap-root" -> admin.bootstrapRoot(operands)
@@ -119,6 +127,10 @@ fun main(args: Array<String>) {
                         "revoke-invitation" -> admin.revokeInvitation(operands)
                         "list-invitations" -> admin.listInvitations(operands)
                         "transfer-ownership" -> admin.transferOwnership(operands)
+                        "create-category" -> admin.createCategory(operands)
+                        "list-categories" -> admin.listCategories(operands)
+                        "upload-document" -> admin.uploadDocument(operands)
+                        "list-documents" -> admin.listDocuments(operands)
                         else -> admin.revokeRole(operands)
                     }
                 } catch (e: CommandException) {

@@ -1,6 +1,8 @@
 package cc.seebrook.app.cli
 
 import cc.seebrook.app.support.Fixtures
+import cc.seebrook.app.support.MemoryStorage
+import cc.seebrook.app.support.TestPdfs
 import cc.seebrook.app.support.TestPostgres
 import cc.seebrook.db.generated.identity.Tables.USER_ACCOUNT
 import cc.seebrook.platform.db.Database
@@ -90,5 +92,27 @@ class AdminCommandsTest {
         commands.transferOwnership(transfer + listOf("--commit", "--reason", "Sale")) shouldContain
             "New owners invited (sent separately): buyer@example.test, co-buyer@example.test"
         commands.transferOwnership(transfer + listOf("--commit", "--reason", "Sale")) shouldContain "nothing changed"
+    }
+
+    @Test
+    fun `document commands create a category, upload a PDF and list it`() {
+        Fixtures.hoa(db, "channel-harbor")
+        commands.bootstrapRoot(listOf("--email", "root@example.test"))
+        val docs = AdminCommands(db, MemoryStorage(), 1024 * 1024)
+        val who = listOf("--operator", "root@example.test", "--hoa", "channel-harbor")
+        val pdf = kotlin.io.path.createTempFile(suffix = ".pdf").toFile().apply { writeBytes(TestPdfs.pdf(pages = 3)); deleteOnExit() }
+        val notPdf = kotlin.io.path.createTempFile(suffix = ".pdf").toFile().apply { writeText("hello"); deleteOnExit() }
+
+        docs.createCategory(who + listOf("--name", "Minutes")) shouldContain "Created category 'Minutes'"
+        docs.listCategories(who) shouldBe "Minutes"
+        val upload = who + listOf("--category", "minutes", "--title", "March meeting", "--description", "Board minutes")
+        docs.uploadDocument(upload + listOf("--file", pdf.path, "--tags", "board,2026", "--document-date", "2026-03-10")) shouldContain
+            "Uploaded (3 pages)"
+        shouldThrow<CommandException> { docs.uploadDocument(upload + listOf("--file", notPdf.path)) }.message shouldContain "not a PDF"
+        shouldThrow<CommandException> { docs.uploadDocument(upload + listOf("--file", pdf.path, "--document-date", "March")) }
+            .exitCode shouldBe 2
+        docs.listDocuments(who) shouldBe "Minutes  March meeting  processing"
+        shouldThrow<CommandException> { commands.uploadDocument(upload + listOf("--file", pdf.path)) }
+            .message shouldContain "storage is not configured"
     }
 }

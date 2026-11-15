@@ -24,7 +24,7 @@ case "${1:-up}" in
     ;;
 esac
 
-echo "==> Starting local PostgreSQL and Mailpit (emails: http://localhost:8025)"
+echo "==> Starting local PostgreSQL, Mailpit (emails: http://localhost:8025), S3Mock and ClamAV"
 "${COMPOSE[@]}" up -d --wait
 
 echo "==> Building the backend"

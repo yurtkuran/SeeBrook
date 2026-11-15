@@ -1,5 +1,10 @@
 package cc.seebrook.app.cli
 
+import cc.seebrook.document.CreateCategory
+import cc.seebrook.document.DocumentDetails
+import cc.seebrook.document.ListCategories
+import cc.seebrook.document.ListDocumentsForAdmin
+import cc.seebrook.document.UploadDocument
 import cc.seebrook.identity.BootstrapRoot
 import cc.seebrook.identity.GrantRole
 import cc.seebrook.identity.ImportOwners
@@ -13,9 +18,12 @@ import cc.seebrook.identity.RevokeRole
 import cc.seebrook.platform.auth.Role
 import cc.seebrook.platform.auth.UserActor
 import cc.seebrook.platform.db.Database
+import cc.seebrook.platform.storage.ObjectStorage
 import cc.seebrook.tenant.FindHoa
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.LocalDate
+import java.time.format.DateTimeParseException
 import java.util.UUID
 
 /** Admin command failed for a reason the operator can fix; printed without a stack trace. */
@@ -43,7 +51,11 @@ private fun Map<String, String>.required(name: String) =
  * Admin commands (ED-14, ED-31): thin adapters over the same actions the API uses, so operators
  * get the same authorization and audit. Every command except `bootstrap-root` names its operator.
  */
-class AdminCommands(private val db: Database) {
+class AdminCommands(
+    private val db: Database,
+    private val storage: ObjectStorage? = null,
+    private val maxDocumentBytes: Int = 25 * 1024 * 1024,
+) {
     private fun operator(email: String): UserActor = when (val result = ResolveOperator(db)(email)) {
         is ResolveOperator.Result.Active -> result.actor
         ResolveOperator.Result.NotFound -> throw CommandException("Operator '$email' is not a user")
@@ -204,6 +216,73 @@ class AdminCommands(private val db: Database) {
             TransferOwnership.Result.NoNewOwners -> throw CommandException("--to needs at least one email address", 2)
             TransferOwnership.Result.Forbidden -> throw CommandException("Operator may not manage membership in this HOA")
             TransferOwnership.Result.ReasonRequired -> throw CommandException("--commit requires --reason (up to 1000 characters)", 2)
+        }
+    }
+
+    fun createCategory(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "name"))
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        return when (val result = CreateCategory(db)(operator(o.required("operator")), hoaId, o.required("name"))) {
+            is CreateCategory.Result.Created -> "Created category '${result.category.name}'"
+            CreateCategory.Result.AlreadyExists -> throw CommandException("A category named '${o["name"]}' already exists")
+            CreateCategory.Result.InvalidName -> throw CommandException("Category names are 1 to 100 characters", 2)
+            CreateCategory.Result.Forbidden -> throw CommandException("Operator may not manage documents in this HOA")
+        }
+    }
+
+    fun listCategories(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa"))
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        return when (val result = ListCategories(db)(operator(o.required("operator")), hoaId)) {
+            is ListCategories.Result.Listed -> result.categories.joinToString("\n") { it.name }.ifEmpty { "No categories" }
+            ListCategories.Result.Forbidden -> throw CommandException("Operator may not manage documents in this HOA")
+        }
+    }
+
+    fun uploadDocument(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "category", "title", "description", "tags", "document-date", "file"))
+        val storage = storage ?: throw CommandException("Document storage is not configured (SEEBROOK_STORAGE_MODE)")
+        val path = Path.of(o.required("file"))
+        if (!Files.isRegularFile(path)) throw CommandException("No file at $path")
+        if (Files.size(path) > maxDocumentBytes) throw CommandException("File is larger than ${maxDocumentBytes / (1024 * 1024)} MB")
+        val date = o["document-date"]?.let {
+            try {
+                LocalDate.parse(it)
+            } catch (_: DateTimeParseException) {
+                throw CommandException("--document-date must be YYYY-MM-DD", 2)
+            }
+        }
+        val details = DocumentDetails(
+            title = o.required("title"),
+            description = o.required("description"),
+            tags = o["tags"]?.split(',').orEmpty(),
+            documentDate = date,
+        )
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        val result = UploadDocument(db, storage, maxDocumentBytes)(
+            operator(o.required("operator")), hoaId, o.required("category"), details, path.fileName.toString(), Files.readAllBytes(path),
+        )
+        return when (result) {
+            is UploadDocument.Result.Uploaded ->
+                "Uploaded (${result.pageCount} pages). It is quarantined until the malware scan passes, then published " +
+                    "automatically; check with list-documents."
+            is UploadDocument.Result.InvalidDetails ->
+                throw CommandException("Not uploaded: " + result.problems.joinToString("; ") { "${it.first} ${it.second}" }, 2)
+            is UploadDocument.Result.InvalidFile -> throw CommandException("Not uploaded: ${result.reason}")
+            UploadDocument.Result.CategoryNotFound -> throw CommandException("No category '${o["category"]}' (see list-categories)")
+            UploadDocument.Result.Forbidden -> throw CommandException("Operator may not manage documents in this HOA")
+        }
+    }
+
+    fun listDocuments(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa"))
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        return when (val result = ListDocumentsForAdmin(db)(operator(o.required("operator")), hoaId)) {
+            is ListDocumentsForAdmin.Result.Listed -> result.rows.joinToString("\n") { r ->
+                val rejected = r.rejectionReason?.let { " — rejected: $it" }.orEmpty()
+                "${r.category}  ${r.title}  ${r.status}$rejected"
+            }.ifEmpty { "No documents" }
+            ListDocumentsForAdmin.Result.Forbidden -> throw CommandException("Operator may not manage documents in this HOA")
         }
     }
 

@@ -45,13 +45,16 @@ Admin commands (audited; ED-31):
                              Revoke a pending invitation and cancel any queued email.
   list-invitations --operator <email> --hoa <slug>
                              Show every invitation and its state (unsent, queued, sent, expired, accepted, revoked).
+  transfer-ownership --operator <email> --hoa <slug> --unit <label> --to <email>[,<email>...] [--commit --reason <text>]
+                             Make the listed people the unit's owners: others lose access at once, their pending
+                             invitations are revoked, new people are invited (dry run by default).
 
 Background jobs:
   run-jobs                   Run queued jobs now (e.g. invitation emails) and exit. `serve` runs them continuously."""
 
 private val ADMIN_COMMANDS = setOf(
     "bootstrap-root", "grant-role", "revoke-role", "import-owners",
-    "send-invitations", "resend-invitation", "revoke-invitation", "list-invitations",
+    "send-invitations", "resend-invitation", "revoke-invitation", "list-invitations", "transfer-ownership",
 )
 
 private fun usage(): Nothing {
@@ -115,6 +118,7 @@ fun main(args: Array<String>) {
                         "resend-invitation" -> admin.resendInvitation(operands)
                         "revoke-invitation" -> admin.revokeInvitation(operands)
                         "list-invitations" -> admin.listInvitations(operands)
+                        "transfer-ownership" -> admin.transferOwnership(operands)
                         else -> admin.revokeRole(operands)
                     }
                 } catch (e: CommandException) {

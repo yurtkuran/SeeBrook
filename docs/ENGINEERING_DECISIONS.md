@@ -50,6 +50,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-34 | Owner CSV import: additive, all-or-nothing, never transfers ownership | Accepted | 2026-11-14 |
 | ED-35 | Invitation delivery through the job outbox | Accepted | 2026-11-15 |
 | ED-36 | Provider-neutral email gateway; Mailpit locally, Brevo HTTP API for the beta, Postmark or Resend later | Accepted | 2026-11-15 |
+| ED-37 | Ownership transfer: set a unit's owners atomically; access ends on the next request | Accepted | 2026-11-15 |
 
 ## Pending decisions
 
@@ -450,6 +451,17 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Libraries:** Eclipse Angus Mail 2.0.5 (the Jakarta Mail reference implementation) for SMTP; the JDK HTTP client and kotlinx.serialization for Brevo, so no provider SDK.
 - **Alternatives considered:** SMTP for every provider — one adapter and the same path in development, but fails on hosts that block SMTP ports and cannot tell permanent from temporary failures as reliably; kept as the fallback. Provider SDKs — more dependencies for a single API call. Provider-hosted templates — rejected by owner: content would be locked into the provider. Writing local email to files — Mailpit shows real rendered messages and exercises the SMTP path.
 
+## ED-37 — Ownership transfer
+- **Status:** Accepted · **Date:** 2026-11-15 · **Related:** GA-07, GA-09, ED-29, ED-32, ED-34, ED-35
+- **Decision:**
+  - **One action sets a unit's owners:** `transfer-ownership --unit <label> --to <emails>` makes the listed people the unit's owners in one transaction. Owners not listed lose the unit (their ownership gets an end time; rows are never deleted). Pending invitations for people not listed are revoked and any queued email is cancelled. Listed people who are neither owners nor invited get a new, unsent invitation, sent later with `send-invitations`. Listed people who already own the unit (or are invited) are untouched, so adding or removing a co-owner uses the same action.
+  - **Effective on the next request:** access is checked against the database on every request (ED-29), so a removed owner's still-valid sign-in token no longer reaches the unit. Their other units are unaffected.
+  - **Safeguards:** dry run by default; `--commit` needs a reason; requires "manage membership" in the HOA (ED-32); one audit event records the owners and invitations before, who was removed, what was revoked and who was invited. At least one new owner is required: leaving a unit with no owner is not supported yet.
+  - **Concurrency:** transfers and owner imports in one HOA run one at a time (a per-HOA lock, shared with ED-34). Within the transaction the unit's pending invitations are locked before its owners are read, so an acceptance in progress finishes first and its new owner is then seen and handled, never missed.
+  - **Imports cannot undo a transfer:** an import listing the previous owner for the unit is a conflict (ED-34).
+- **Not yet covered:** the date of sale (recorded on the roadmap with owner profile details; the ownership end time is when the transfer was recorded); cancelling the previous owner's recurring payments, which M6 adds to this same transaction (GA-08).
+- **Alternatives considered:** Separate add-owner and remove-owner commands — two steps for a sale, with a window where the unit has both or neither owner. Ending ownership via the import — rejected in ED-34.
+
 ---
 
 ## Change log
@@ -467,3 +479,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-14 — M2: added ED-31 (owner is sole Root and operator; admin commands), ED-32 (roles and permissions) and ED-33 (append-only audit trail). Resolved the admin operators pending item.
 - 2026-11-14 — M2: added ED-34 (owner CSV import; invitations start unsent, amending ED-29).
 - 2026-11-15 — M2: added ED-35 (invitation delivery through the job outbox; worker thread amends ED-06; tokens created at each send, amending ED-29) and ED-36 (provider-neutral email gateway; owner chose Mailpit for development, Brevo's HTTP API for the beta, Postmark or Resend later). Replaced the email provider pending item with the Brevo account and domain setup.
+- 2026-11-15 — M2: added ED-37 (ownership transfer).

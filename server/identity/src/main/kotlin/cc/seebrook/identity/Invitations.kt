@@ -32,7 +32,12 @@ internal object UserStatus {
 
 /** Emails are compared case-insensitively by storing them normalized. */
 object EmailAddress {
+    private val FORMAT = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
+
     fun normalize(raw: String): String = raw.trim().lowercase(Locale.ROOT)
+
+    /** A plausible address: something@domain.tld, at most 320 characters. Delivery is the real test. */
+    fun isValid(normalized: String): Boolean = normalized.length <= 320 && FORMAT.matches(normalized)
 }
 
 /**

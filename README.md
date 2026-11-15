@@ -33,6 +33,16 @@ curl -s localhost:8088/v1/invitations/accept -H "Authorization: Bearer $TOKEN" \
 curl -s localhost:8088/v1/me/properties -H "Authorization: Bearer $TOKEN"     # only Unit 07
 ```
 
+Once a document is published (see Admin commands below), the same owner can browse and download it:
+
+```bash
+HOA=$(curl -s localhost:8088/v1/me/properties -H "Authorization: Bearer $TOKEN" | sed -E 's/.*"hoaId":"([^"]+)".*/\1/')
+curl -s "localhost:8088/v1/hoas/$HOA/documents?q=bylaws&sort=title" -H "Authorization: Bearer $TOKEN"
+curl -s -X POST localhost:8088/v1/hoas/$HOA/documents/<documentId>/download-link -H "Authorization: Bearer $TOKEN"
+```
+
+ED-39 lists the search, sort and paging options. Download links last 5 minutes and every link issued is audited.
+
 ### Admin commands
 
 Operators run audited admin commands with the same executable (ED-31). Set the same `SEEBROOK_*` variables as the server, then:

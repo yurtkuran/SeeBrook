@@ -4,6 +4,7 @@ import cc.seebrook.platform.auth.IdTokenVerifier
 import cc.seebrook.platform.auth.InvalidTokenException
 import cc.seebrook.platform.auth.TokenKeysUnavailableException
 import cc.seebrook.platform.db.Database
+import cc.seebrook.platform.storage.ObjectStorage
 import cc.seebrook.shared.api.ErrorResponse
 import cc.seebrook.shared.api.HealthResponse
 import cc.seebrook.shared.api.HealthStatus
@@ -32,7 +33,8 @@ private val log = LoggerFactory.getLogger("cc.seebrook.app.http")
 /** Name of the bearer-token authentication used by every signed-in route. */
 internal const val FIREBASE_AUTH = "firebase"
 
-fun Application.seebrookModule(db: Database, tokenVerifier: IdTokenVerifier) {
+/** [storage] null means document downloads answer 503 (storage disabled, ED-38). */
+fun Application.seebrookModule(db: Database, tokenVerifier: IdTokenVerifier, storage: ObjectStorage? = null) {
     install(ContentNegotiation) {
         json(Json { explicitNulls = false })
     }
@@ -66,7 +68,9 @@ fun Application.seebrookModule(db: Database, tokenVerifier: IdTokenVerifier) {
     }
 
     routing {
-        accountRoutes(AccountActions(db))
+        val accounts = AccountActions(db)
+        accountRoutes(accounts)
+        documentRoutes(accounts, DocumentActions(db, storage))
         get("/health/live") {
             call.respond(HealthResponse(HealthStatus.UP))
         }

@@ -52,6 +52,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-36 | Provider-neutral email gateway; Mailpit locally, Brevo HTTP API for the beta, Postmark or Resend later | Accepted | 2026-11-15 |
 | ED-37 | Ownership transfer: set a unit's owners atomically; access ends on the next request | Accepted | 2026-11-15 |
 | ED-38 | Document storage, upload checks and ClamAV malware scanning | Accepted | 2026-11-15 |
+| ED-39 | Owner document library API | Accepted | 2026-11-15 |
 
 ## Pending decisions
 
@@ -478,6 +479,22 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Libraries and images:** AWS SDK for Java 2.57.8 (S3 only, over the JDK HTTP client), Apache PDFBox 3.0.8, `clamav/clamav:1.5.4-debian` (multi-architecture), `adobe/s3mock:5.2.3`.
 - **Alternatives considered:** A hosted scanning API — documents would go to another vendor. The host's built-in scanning (e.g. AWS GuardDuty) — ties scanning to a hosting choice not yet made. Scanning synchronously in the upload command — an unavailable scanner would fail the upload instead of retrying. Storing files in PostgreSQL — larger backups and database load for no benefit over object storage.
 
+## ED-39 — Owner document library API
+- **Status:** Accepted · **Date:** 2026-11-15 · **Decided by:** engineering · **Related:** GA-06, GA-10, GA-11, ED-14, ED-38
+- **Decision:**
+  - **Access (GA-10):** an owner reaches an HOA's library only while they actively own at least one property in it; ending their last ownership in the HOA ends access at once. Roles grant nothing here: administrators use the admin commands, and Root sees the library as an owner only if they own a property. Unknown HOAs, HOAs without access, and unknown or unpublished documents all answer `404 not_found`, so nothing about another HOA can be inferred (GA-06).
+  - **Visibility (GA-11):** only published documents whose current version is clean. Processing, rejected and (from M3 part 3) archived documents, and previous versions, are never listed.
+  - **Endpoints (`/v1/hoas/{hoaId}`):**
+    - `GET /documents` — `q` (search), `category` (ID), `sort` = `uploaded` (default, newest first) | `title` | `documentDate` (undated last), `order` = `asc` | `desc`, `page` (from 1), `pageSize` (default 20, at most 50). Returns the page and the total. A malformed value answers `400 invalid_query` rather than a guess.
+    - `GET /documents/{documentId}` — one document.
+    - `GET /document-categories` — categories holding at least one visible document, with counts, for the filter.
+    - `POST /documents/{documentId}/download-link` — a signed link to the current version, valid 5 minutes, with the expiry and a file name taken from the title (not the administrator's original file name). POST because every call issues a link and writes an audit event.
+  - **Search:** case-insensitive substring match on title, description, category name and tags; every word must match somewhere; `%` and `_` are literal. Not PDF text (requirements). A plain `ILIKE` scan suits a pilot library of tens to hundreds of documents; revisit with PostgreSQL full-text search if libraries grow to thousands.
+  - **Upload date** is when the current version was uploaded, so a replaced document (M3 part 3) shows its new date.
+  - **Audit:** each link issued is recorded (`document.download_link_issued`: owner, document, version, validity), never the link itself. Viewing and downloading both need a link, so this is the observable record of PDF access; fetches from storage are not observable by the server and would need the provider's access logs. Browsing the list is not audited.
+  - **Storage disabled:** listing still works; links answer `503 documents_unavailable`.
+- **Alternatives considered:** Streaming PDFs through the API — keeps files off the public internet entirely, but the requirements call for signed URLs and it would load the single server. Cursor pagination — more robust under concurrent changes, but page numbers suit a small, rarely-changing library and the requirement for server pagination. Longer-lived links — fewer refreshes, but a leaked link would stay valid longer; clients request a fresh link per open.
+
 ---
 
 ## Change log
@@ -497,3 +514,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-15 — M2: added ED-35 (invitation delivery through the job outbox; worker thread amends ED-06; tokens created at each send, amending ED-29) and ED-36 (provider-neutral email gateway; owner chose Mailpit for development, Brevo's HTTP API for the beta, Postmark or Resend later). Replaced the email provider pending item with the Brevo account and domain setup.
 - 2026-11-15 — M2: added ED-37 (ownership transfer).
 - 2026-11-15 — M3: added ED-38 (S3-compatible private storage, upload checks, ClamAV scanning chosen by owner). Resolved the malware scanning pending item; updated the storage provider item.
+- 2026-11-15 — M3: added ED-39 (owner document library API: access from active property ownership, search, sort, pagination, audited 5-minute download links).

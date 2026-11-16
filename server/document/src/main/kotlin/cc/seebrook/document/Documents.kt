@@ -77,7 +77,7 @@ object DocumentVersionJob {
         Jobs.enqueue(tx, KIND, hoaId, "document-version:$versionId", buildJsonObject { put("versionId", versionId.toString()) })
 }
 
-private fun sha256(content: ByteArray): String = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content))
+internal fun sha256(content: ByteArray): String = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content))
 
 /**
  * Uploads a new document (GA-12, ED-38). The file is checked at once (so the operator gets an
@@ -207,12 +207,23 @@ class ProcessDocumentVersion(
                 .set(VERSION.SCANNED_AT, DSL.currentOffsetDateTime())
                 .where(VERSION.ID.eq(pending.id)).and(VERSION.STATE.eq(VersionState.QUARANTINED))
                 .execute()
+            // A first upload publishes the document; a replacement (GA-11) becomes its current
+            // version, also while archived. One pending version at a time (ReplaceDocument).
             val published = tx.update(DOCUMENT)
                 .set(DOCUMENT.STATUS, DocumentStatus.PUBLISHED)
                 .set(DOCUMENT.CURRENT_VERSION_ID, pending.id)
                 .set(DOCUMENT.PUBLISHED_AT, DSL.currentOffsetDateTime())
                 .where(DOCUMENT.ID.eq(pending.documentId)).and(DOCUMENT.STATUS.eq(DocumentStatus.PROCESSING))
                 .execute()
+            val replaced = if (published == 1) {
+                0
+            } else {
+                tx.update(DOCUMENT)
+                    .set(DOCUMENT.CURRENT_VERSION_ID, pending.id)
+                    .where(DOCUMENT.ID.eq(pending.documentId))
+                    .and(DOCUMENT.STATUS.`in`(DocumentStatus.PUBLISHED, DocumentStatus.ARCHIVED))
+                    .execute()
+            }
             Audit.record(
                 tx, null, Channel.SYSTEM,
                 AuditEntry(
@@ -224,6 +235,7 @@ class ProcessDocumentVersion(
                         put("versionId", pending.id.toString())
                         put("scannedBy", engine.take(200))
                         put("documentPublished", published == 1)
+                        put("replacedCurrentVersion", replaced == 1)
                     },
                 ),
             )

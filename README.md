@@ -63,10 +63,19 @@ seebrook transfer-ownership --operator <email> --hoa channel-harbor --unit "Unit
 seebrook create-category --operator <email> --hoa channel-harbor --name "Governing documents"
 seebrook upload-document --operator <email> --hoa channel-harbor --category "Governing documents" \
   --title "Bylaws" --description "Current bylaws" --file bylaws.pdf [--tags bylaws,rules] [--document-date 2026-03-01]
-seebrook list-documents --operator <email> --hoa channel-harbor
+seebrook list-documents --operator <email> --hoa channel-harbor                              # shows document IDs
+seebrook replace-document --operator <email> --hoa channel-harbor --document <id> --file bylaws-v2.pdf
+seebrook update-document --operator <email> --hoa channel-harbor --document <id> [--title ...] [--category ...] [--document-date none]
+seebrook archive-document --operator <email> --hoa channel-harbor --document <id> --reason "<why>"
+seebrook restore-document --operator <email> --hoa channel-harbor --document <id> --reason "<why>"
+seebrook list-versions --operator <email> --hoa channel-harbor --document <id>
+seebrook restore-version --operator <email> --hoa channel-harbor --document <id> --version <id> --reason "<why>"
+seebrook rename-category --operator <email> --hoa channel-harbor --name "Minutes" --to "Board minutes"
+seebrook reassign-documents --operator <email> --hoa channel-harbor --from "Old" --to "Minutes"
+seebrook delete-category --operator <email> --hoa channel-harbor --name "Old" --reason "<why>"   # only when empty
 ```
 
-Uploaded PDFs are checked at once, kept in quarantine, scanned by ClamAV in the background and published only when clean (ED-38). Locally, ClamAV takes about a minute to load its signatures after `scripts/dev.sh` starts it.
+Uploaded PDFs, new versions included, are checked at once, kept in quarantine, scanned by ClamAV in the background and published only when clean (ED-38). Locally, ClamAV takes about a minute to load its signatures after `scripts/dev.sh` starts it.
 
 The server sends queued invitation emails in the background (`seebrook run-jobs` sends them without a server). Locally, every email is caught by Mailpit — open http://localhost:8025 to read it and copy the invitation code; nothing is sent to real addresses. In production, emails stay queued until email is configured (ED-35, ED-36).
 

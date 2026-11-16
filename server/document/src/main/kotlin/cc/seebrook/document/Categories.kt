@@ -14,6 +14,11 @@ import java.util.UUID
 
 data class CategoryView(val id: UUID, val name: String)
 
+/** Category names: trimmed, inner whitespace collapsed, 1 to 100 characters. */
+internal object CategoryNames {
+    fun clean(name: String): String? = name.trim().replace(Regex("\\s+"), " ").takeIf { it.isNotEmpty() && it.length <= 100 }
+}
+
 internal object CategoryLookup {
     /** Case-insensitive, as category names are unique regardless of case. */
     fun byName(tx: DSLContext, hoaId: UUID, name: String): CategoryView? =
@@ -40,8 +45,7 @@ class CreateCategory(private val db: Database) {
 
     operator fun invoke(actor: UserActor, hoaId: UUID, name: String): Result {
         if (!actor.can(Permission.MANAGE_DOCUMENTS, hoaId)) return Result.Forbidden
-        val clean = name.trim().replace(Regex("\\s+"), " ")
-        if (clean.isEmpty() || clean.length > 100) return Result.InvalidName
+        val clean = CategoryNames.clean(name) ?: return Result.InvalidName
         return db.transaction { tx ->
             if (CategoryLookup.byName(tx, hoaId, clean) != null) return@transaction Result.AlreadyExists
             val id = requireNotNull(

@@ -54,7 +54,23 @@ Admin commands (audited; ED-31):
                   --file <pdf> [--tags <a,b>] [--document-date YYYY-MM-DD]
                              Check and upload a PDF; it is published after a clean malware scan.
   list-documents --operator <email> --hoa <slug>
-                             Show every document and its state (processing, published, archived, rejected).
+                             Show every document with its ID and state (processing, published, archived, rejected).
+  replace-document --operator <email> --hoa <slug> --document <id> --file <pdf>
+                             Upload a new version; it replaces the current one after a clean scan.
+  update-document --operator <email> --hoa <slug> --document <id> [--title <text>] [--description <text>]
+                  [--tags <a,b>|none] [--document-date YYYY-MM-DD|none] [--category <name>]
+                             Edit details or move to another category; the PDF is unchanged.
+  archive-document --operator <email> --hoa <slug> --document <id> --reason <text>
+  restore-document --operator <email> --hoa <slug> --document <id> --reason <text>
+                             Hide a document from owners, or show an archived one again.
+  list-versions --operator <email> --hoa <slug> --document <id>
+  restore-version --operator <email> --hoa <slug> --document <id> --version <id> --reason <text>
+                             Make an earlier clean version current again; newer versions are kept.
+  rename-category --operator <email> --hoa <slug> --name <name> --to <new name>
+  reassign-documents --operator <email> --hoa <slug> --from <category> --to <category>
+                             Move every document of a category, archived ones included, to another.
+  delete-category --operator <email> --hoa <slug> --name <name> --reason <text>
+                             Only when it holds no documents, archived ones included.
 
 Background jobs:
   run-jobs                   Run queued jobs now (invitation emails, document scans) and exit. `serve` runs them continuously."""
@@ -63,6 +79,8 @@ private val ADMIN_COMMANDS = setOf(
     "bootstrap-root", "grant-role", "revoke-role", "import-owners",
     "send-invitations", "resend-invitation", "revoke-invitation", "list-invitations", "transfer-ownership",
     "create-category", "list-categories", "upload-document", "list-documents",
+    "replace-document", "update-document", "archive-document", "restore-document", "list-versions", "restore-version",
+    "rename-category", "reassign-documents", "delete-category",
 )
 
 private fun usage(): Nothing {
@@ -131,6 +149,15 @@ fun main(args: Array<String>) {
                         "list-categories" -> admin.listCategories(operands)
                         "upload-document" -> admin.uploadDocument(operands)
                         "list-documents" -> admin.listDocuments(operands)
+                        "replace-document" -> admin.replaceDocument(operands)
+                        "update-document" -> admin.updateDocument(operands)
+                        "archive-document" -> admin.archiveDocument(operands)
+                        "restore-document" -> admin.restoreDocument(operands)
+                        "list-versions" -> admin.listVersions(operands)
+                        "restore-version" -> admin.restoreVersion(operands)
+                        "rename-category" -> admin.renameCategory(operands)
+                        "reassign-documents" -> admin.reassignDocuments(operands)
+                        "delete-category" -> admin.deleteCategory(operands)
                         else -> admin.revokeRole(operands)
                     }
                 } catch (e: CommandException) {

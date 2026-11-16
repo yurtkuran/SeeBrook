@@ -111,8 +111,27 @@ class AdminCommandsTest {
         shouldThrow<CommandException> { docs.uploadDocument(upload + listOf("--file", notPdf.path)) }.message shouldContain "not a PDF"
         shouldThrow<CommandException> { docs.uploadDocument(upload + listOf("--file", pdf.path, "--document-date", "March")) }
             .exitCode shouldBe 2
-        docs.listDocuments(who) shouldBe "Minutes  March meeting  processing"
+        val listed = docs.listDocuments(who)
+        listed shouldContain "  Minutes  March meeting  processing"
+        val documentId = listed.substringBefore(" ")
         shouldThrow<CommandException> { commands.uploadDocument(upload + listOf("--file", pdf.path)) }
             .message shouldContain "storage is not configured"
+
+        // Changes to an existing document and its category.
+        val doc = who + listOf("--document", documentId)
+        docs.updateDocument(doc + listOf("--title", "March board meeting", "--document-date", "none")) shouldBe "Updated"
+        shouldThrow<CommandException> { docs.updateDocument(doc) }.exitCode shouldBe 2
+        shouldThrow<CommandException> { docs.updateDocument(who + listOf("--document", "nope", "--title", "x")) }.exitCode shouldBe 2
+        docs.listVersions(doc) shouldContain "March board meeting (processing)"
+        shouldThrow<CommandException> { docs.archiveDocument(doc + listOf("--reason", "old")) }.message shouldContain "is processing"
+        shouldThrow<CommandException> { docs.archiveDocument(doc) }.exitCode shouldBe 2
+        shouldThrow<CommandException> { docs.replaceDocument(doc + listOf("--file", pdf.path)) }.message shouldContain "still being scanned"
+        docs.renameCategory(who + listOf("--name", "minutes", "--to", "Board minutes")) shouldContain "Renamed"
+        docs.createCategory(who + listOf("--name", "Archive"))
+        shouldThrow<CommandException> { docs.deleteCategory(who + listOf("--name", "Board minutes", "--reason", "x")) }
+            .message shouldContain "still holds 1 document"
+        docs.reassignDocuments(who + listOf("--from", "Board minutes", "--to", "Archive")) shouldContain "Moved 1 document"
+        docs.deleteCategory(who + listOf("--name", "Board minutes", "--reason", "merged")) shouldContain "Deleted"
+        docs.listCategories(who) shouldBe "Archive"
     }
 }

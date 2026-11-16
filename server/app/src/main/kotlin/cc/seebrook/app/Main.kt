@@ -2,6 +2,7 @@ package cc.seebrook.app
 
 import cc.seebrook.app.cli.AdminCommands
 import cc.seebrook.app.cli.CommandException
+import cc.seebrook.app.cli.FinanceCommands
 import cc.seebrook.app.devtools.DevAuth
 import cc.seebrook.app.devtools.DevSeed
 import cc.seebrook.app.http.seebrookModule
@@ -72,6 +73,18 @@ Admin commands (audited; ED-31):
   delete-category --operator <email> --hoa <slug> --name <name> --reason <text>
                              Only when it holds no documents, archived ones included.
 
+Finance (positive balances are owed, negative are credits):
+  import-accounts --operator <email> --hoa <slug> --file <csv> [--commit --reason <text>]
+                             Map units to their spreadsheet account IDs (columns unit_label,account; dry run by default).
+  import-transactions --operator <email> --hoa <slug> --file <csv> [--commit --reason <text>]
+                             Import assessments, fees, adjustments, waivers and offline payments; changed rows become
+                             audited corrections. Dry run by default; the same file twice changes nothing.
+  list-balances --operator <email> --hoa <slug>
+  account-statement --operator <email> --hoa <slug> --unit <label>
+  reconcile-balances --operator <email> --hoa <slug> --file <csv>
+                             Compare ledger balances with the spreadsheet's (columns account,balance) and check the
+                             ledger; exits 1 unless everything matches.
+
 Background jobs:
   run-jobs                   Run queued jobs now (invitation emails, document scans) and exit. `serve` runs them continuously."""
 
@@ -81,6 +94,10 @@ private val ADMIN_COMMANDS = setOf(
     "create-category", "list-categories", "upload-document", "list-documents",
     "replace-document", "update-document", "archive-document", "restore-document", "list-versions", "restore-version",
     "rename-category", "reassign-documents", "delete-category",
+)
+
+private val FINANCE_COMMANDS = setOf(
+    "import-accounts", "import-transactions", "list-balances", "account-statement", "reconcile-balances",
 )
 
 private fun usage(): Nothing {
@@ -99,7 +116,7 @@ fun main(args: Array<String>) {
         "serve", "migrate", "seed-dev", "run-jobs" -> if (operands.isNotEmpty()) usage()
         "dev-invite" -> if (operands.size != 2) usage()
         "dev-token" -> if (operands.size !in 1..2 || (operands.size == 2 && operands[1] != "--unverified")) usage()
-        in ADMIN_COMMANDS -> {}
+        in ADMIN_COMMANDS, in FINANCE_COMMANDS -> {}
         else -> usage()
     }
 
@@ -132,6 +149,23 @@ fun main(args: Array<String>) {
                 val issued = DevAuth.invite(db, config.environment, operands[0], operands[1])
                 println("Invitation for ${operands[1]} to ${operands[0]} (expires ${issued.expiresAt}):")
                 println(issued.token)
+            }
+            in FINANCE_COMMANDS -> {
+                val finance = FinanceCommands(db)
+                val output = try {
+                    when (command) {
+                        "import-accounts" -> finance.importAccounts(operands)
+                        "import-transactions" -> finance.importTransactions(operands)
+                        "list-balances" -> finance.listBalances(operands)
+                        "account-statement" -> finance.accountStatement(operands)
+                        else -> finance.reconcileBalances(operands)
+                    }
+                } catch (e: CommandException) {
+                    System.err.println("Error: ${e.message}")
+                    if (e.exitCode == 2) System.err.println(USAGE)
+                    exitProcess(e.exitCode)
+                }
+                println(output)
             }
             in ADMIN_COMMANDS -> {
                 val admin = AdminCommands(db, BackgroundJobs.storage(config), config.documentMaxBytes)

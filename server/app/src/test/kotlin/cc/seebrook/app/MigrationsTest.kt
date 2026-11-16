@@ -11,8 +11,8 @@ class MigrationsTest {
     fun `migrations apply to an empty database and re-running is a no-op`() {
         TestPostgres.freshDatabase(migrate = false).use { db ->
             val first = Migrations.migrate(db.dataSource)
-            first.applied shouldBe 10
-            first.currentVersion shouldBe "10"
+            first.applied shouldBe 11
+            first.currentVersion shouldBe "11"
 
             Migrations.migrate(db.dataSource).applied shouldBe 0
 

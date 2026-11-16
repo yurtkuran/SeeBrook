@@ -54,6 +54,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-38 | Document storage, upload checks and ClamAV malware scanning | Accepted | 2026-11-15 |
 | ED-39 | Owner document library API | Accepted | 2026-11-15 |
 | ED-40 | Document administration: replace, archive, restore, version rollback, categories | Accepted | 2026-11-15 |
+| ED-41 | Finance ledger, account mapping and transaction import | Accepted | 2026-11-16 |
 
 ## Pending decisions
 
@@ -67,6 +68,8 @@ This complements — and never overrides — the approved product constraints in
 | Legal entity / account ownership | Before developer accounts, the production Firebase project and processor setup | Who owns developer accounts, domain, Firebase/Google Cloud project, platform and processor relationship (individual, company or HOA) — owner to decide |
 | Future web client (`webapp/`) | After pilot | Folder reserved; not in pilot scope. Likely the financial administration portal required before a second HOA |
 | Private object storage provider | Before the first real document upload | Any S3-compatible provider works (ED-38); usually follows the hosting choice. Needs a private bucket, keys limited to it, and its own backups (REQUIREMENTS: PDFs are backed up) |
+| HOA spreadsheet format | Before the first real finance import | The import uses a canonical CSV (ED-41) built from synthetic fixtures. Needed from the owner: the column headers and layout of the HOA's spreadsheet (no real data). If it differs, a small conversion step or column mapping is added; whether it has stable transaction IDs decides how corrections are matched |
+| Owner view of balances across an ownership change | M4 part 2 (owner finance API) | The account and its balance stay with the property (requirements). Owners see only transactions from their ownership period, which today starts when they accept the invitation, not the purchase date. Owner to decide what a new owner sees for charges from before they joined — user-facing and financial |
 | Payment processor | M5 | Short comparison: ACH/cards/recurring/webhooks/per-HOA merchant (see `OPEN_QUESTIONS.md`) |
 | Pilot access for Android owners | Before M7 | iOS ships first (ED-16). Decide whether the pilot starts with iOS owners only or waits for Android — user-facing, owner to decide |
 | Apple / Google developer accounts | Before first TestFlight build | Apple Developer Program ($99/yr) and Google Play ($25 one-time), ideally under an organization |
@@ -509,6 +512,21 @@ Each exception must state what it is, why it cannot live solely in the backend, 
   - **Commands:** `replace-document`, `update-document`, `archive-document`, `restore-document`, `list-versions`, `restore-version`, `rename-category`, `reassign-documents`, `delete-category`. Documents are named by ID, which `list-documents` now shows.
 - **Alternatives considered:** Deleting a category with documents still in it by moving them automatically — hides a decision the administrator should make. Allowing several pending replacements — whichever scan finished last would win, which is confusing. Soft-deleting categories — nothing references a deleted category, and the audit trail already keeps the record.
 
+## ED-41 — Finance ledger, account mapping and transaction import
+- **Status:** Accepted · **Date:** 2026-11-16 · **Decided by:** engineering · **Related:** GA-14, GA-15, GA-20, GA-21, ED-13, ED-26, ED-34
+- **Decision:**
+  - **FinanceService** (`server/finance`, schema `finance`) owns accounts, imported transactions, corrections and the ledger.
+  - **Money:** integer cents, USD only; never floating point. One sign convention throughout: positive increases what the owner owes (assessments, late fees), negative reduces it (payments, waivers); adjustments may be either. A balance above zero is owed, below zero is a credit.
+  - **Accounts (GA-20):** one persistent account per property, owned by the property, not by an owner, so it survives transfers. Each carries the account's identifier in the HOA's spreadsheet, unique per HOA. `import-accounts` maps units to identifiers from a `unit_label,account` CSV: dry run by default, commit with a reason, every unit must exist, an identifier cannot belong to two units, and an identifier may be corrected only while its account has no transactions.
+  - **Ledger (GA-21):** `finance.ledger_entry` is append-only (database triggers refuse update, delete and truncate), as are corrections and import batches; transactions cannot be deleted. An account's balance is the sum of its entries. The invariant "ledger sum = sum of transactions at current values" is checked by reconciliation and by tests.
+  - **Transaction import (GA-14):** a canonical UTF-8 CSV with `transaction_id, account, date, type, description, amount` and optional `due_date`; types `assessment`, `late_fee`, `adjustment`, `waiver`, `payment` (payments the HOA received outside the app, such as checks). Dates as `YYYY-MM-DD` or `M/D/YYYY`; amounts exactly, with or without `$`, thousands separators, a minus sign or parentheses, at most two decimals, never rounded. Every problem is reported with its line and column, and any problem rejects the whole file. Then the whole file is planned: unmapped accounts are conflicts; a known transaction on a different account is a conflict (money never moves between properties by inference); new IDs are created; changed rows become corrections; identical rows are unchanged; transactions missing from the file are left alone (files may be partial; a removal is entered in the spreadsheet as a correcting row). Dry run by default; a commit with a reason applies everything in one transaction under a per-HOA lock, so a failure leaves nothing behind.
+  - **Idempotent retry:** each committed file is recorded by SHA-256 and never applied twice; any file whose rows are already applied changes nothing.
+  - **Corrections (GA-15):** an immutable before/after record per changed transaction. A changed amount posts a reversal of the old amount and an entry for the new one; history is never rewritten. Processor payments (M5) will live in their own records that imports cannot touch.
+  - **Reconciliation (M4 exit criterion):** `reconcile-balances` compares every ledger balance with the spreadsheet's (`account,balance`), lists mismatches, unknown and missing accounts and any ledger inconsistency, exits non-zero unless everything matches, and is audited.
+  - **Access and audit:** all finance commands need "manage finances" in the HOA (Financial Admin or Root, ED-32); lookups are HOA-scoped, so the same spreadsheet ID in two HOAs names two different accounts. Audit events hold counts and checksums, never amounts or personal financial data; amounts live in the ledger and corrections tables.
+  - **Fixtures:** synthetic `accounts.csv`, `transactions.csv` (261 rows: a year of quarterly dues, check payments, late fees, a waiver, adjustments, a partial and an advance payment) and `expected-balances.csv` for the 32 sample units, all reconciling.
+- **Alternatives considered:** Storing balances directly — fast, but nothing would prove them. Rewriting ledger entries on correction — simpler, but loses the history GA-15 requires. Deleting transactions missing from a file — a partial file would silently erase charges. Reading `.xlsx` directly — more parsing surface and Excel-version quirks for no gain over "Save as CSV UTF-8"; revisit with the real spreadsheet.
+
 ---
 
 ## Change log
@@ -530,3 +548,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-15 — M3: added ED-38 (S3-compatible private storage, upload checks, ClamAV scanning chosen by owner). Resolved the malware scanning pending item; updated the storage provider item.
 - 2026-11-15 — M3: added ED-39 (owner document library API: access from active property ownership, search, sort, pagination, audited 5-minute download links).
 - 2026-11-15 — M3: added ED-40 (document administration: replace, archive, restore, version rollback, detail edits, category rename, reassign and delete when empty). Completes M3.
+- 2026-11-16 — M4: added ED-41 (finance ledger, account mapping, atomic and idempotent transaction import with corrections, reconciliation). Added pending items for the HOA spreadsheet format and the owner view of balances across an ownership change.

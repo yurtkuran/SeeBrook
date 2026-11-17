@@ -18,6 +18,7 @@ dependencies {
     implementation(project(":server:property"))
     implementation(project(":server:identity"))
     implementation(project(":server:document"))
+    implementation(project(":server:finance"))
 
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.netty)

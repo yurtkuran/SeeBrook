@@ -75,6 +75,18 @@ seebrook reassign-documents --operator <email> --hoa channel-harbor --from "Old"
 seebrook delete-category --operator <email> --hoa channel-harbor --name "Old" --reason "<why>"   # only when empty
 ```
 
+Finance commands (ED-41) need "manage finances" in the HOA. Synthetic fixtures for the 32 sample units are in `server/app/src/main/resources/dev-fixtures/channel-harbor/`:
+
+```bash
+F=server/app/src/main/resources/dev-fixtures/channel-harbor
+seebrook import-accounts --operator <email> --hoa channel-harbor --file $F/accounts.csv --commit --reason "Initial mapping"
+seebrook import-transactions --operator <email> --hoa channel-harbor --file $F/transactions.csv                 # dry run
+seebrook import-transactions --operator <email> --hoa channel-harbor --file $F/transactions.csv --commit --reason "2026 ledger"
+seebrook list-balances --operator <email> --hoa channel-harbor
+seebrook account-statement --operator <email> --hoa channel-harbor --unit "Unit 05"
+seebrook reconcile-balances --operator <email> --hoa channel-harbor --file $F/expected-balances.csv
+```
+
 Uploaded PDFs, new versions included, are checked at once, kept in quarantine, scanned by ClamAV in the background and published only when clean (ED-38). Locally, ClamAV takes about a minute to load its signatures after `scripts/dev.sh` starts it.
 
 The server sends queued invitation emails in the background (`seebrook run-jobs` sends them without a server). Locally, every email is caught by Mailpit — open http://localhost:8025 to read it and copy the invitation code; nothing is sent to real addresses. In production, emails stay queued until email is configured (ED-35, ED-36).
@@ -97,7 +109,7 @@ Run `seebrook help` for every command.
 │   ├── app/                Entry point, HTTP routes, admin CLI
 │   ├── platform/           Configuration, DB access, token verification, roles, audit, jobs, email, storage, scanning
 │   ├── db/                 Flyway migrations and generated jOOQ classes (ED-21)
-│   ├── tenant/ identity/ property/ document/   Services built so far (ED-13)
+│   ├── tenant/ identity/ property/ document/ finance/   Services built so far (ED-13)
 │   └── <service>/          ledger, assessment, payment (later milestones)
 ├── mobile-ios/             SwiftUI app (built first, ED-16)
 ├── mobile-android/         Jetpack Compose app (after iOS)

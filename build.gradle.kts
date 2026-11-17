@@ -33,6 +33,7 @@ val schemaOwnership = mapOf(
     "server/property" to setOf("property"),
     "server/identity" to setOf("identity"),
     "server/document" to setOf("document"),
+    "server/finance" to setOf("finance"),
     "server/app" to emptySet(),
 )
 val checkSchemaOwnership by tasks.registering {

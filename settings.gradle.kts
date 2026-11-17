@@ -22,5 +22,6 @@ include(
     ":server:property",
     ":server:identity",
     ":server:document",
+    ":server:finance",
     ":server:app",
 )

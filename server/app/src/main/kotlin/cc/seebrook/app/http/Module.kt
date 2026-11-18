@@ -27,14 +27,23 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import org.slf4j.event.Level
+import java.time.Clock
 
 private val log = LoggerFactory.getLogger("cc.seebrook.app.http")
 
 /** Name of the bearer-token authentication used by every signed-in route. */
 internal const val FIREBASE_AUTH = "firebase"
 
-/** [storage] null means document downloads answer 503 (storage disabled, ED-38). */
-fun Application.seebrookModule(db: Database, tokenVerifier: IdTokenVerifier, storage: ObjectStorage? = null) {
+/**
+ * [storage] null means document downloads answer 503 (storage disabled, ED-38). [clock] decides
+ * "today" for due and overdue amounts; tests pass a fixed one.
+ */
+fun Application.seebrookModule(
+    db: Database,
+    tokenVerifier: IdTokenVerifier,
+    storage: ObjectStorage? = null,
+    clock: Clock = Clock.systemUTC(),
+) {
     install(ContentNegotiation) {
         json(Json { explicitNulls = false })
     }
@@ -71,6 +80,7 @@ fun Application.seebrookModule(db: Database, tokenVerifier: IdTokenVerifier, sto
         val accounts = AccountActions(db)
         accountRoutes(accounts)
         documentRoutes(accounts, DocumentActions(db, storage))
+        financeRoutes(accounts, FinanceActions(db, clock))
         get("/health/live") {
             call.respond(HealthResponse(HealthStatus.UP))
         }

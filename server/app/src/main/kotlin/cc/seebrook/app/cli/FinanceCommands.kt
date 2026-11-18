@@ -6,6 +6,7 @@ import cc.seebrook.finance.ImportTransactions
 import cc.seebrook.finance.ListBalances
 import cc.seebrook.finance.Money
 import cc.seebrook.finance.ReconcileBalances
+import cc.seebrook.finance.RegisterWorkbook
 import cc.seebrook.finance.RowError
 import cc.seebrook.identity.ResolveOperator
 import cc.seebrook.platform.auth.UserActor
@@ -13,6 +14,8 @@ import cc.seebrook.platform.db.Database
 import cc.seebrook.tenant.FindHoa
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.format.TextStyle
+import java.util.Locale
 import java.util.UUID
 
 /** Finance admin commands (ED-41): thin adapters over FinanceService actions, like [AdminCommands]. */
@@ -88,6 +91,8 @@ class FinanceCommands(private val db: Database) {
                 appendLine("    ${c.row.externalId}: ${c.changed.joinToString()}$amount")
             }
             appendLine("  Unchanged: ${plan.unchanged}")
+            if (plan.voids > 0) appendLine("  Voids (amount set to 0): ${plan.voids}")
+            if (plan.zeroSkipped > 0) appendLine("  New rows with amount 0, skipped: ${plan.zeroSkipped}")
             append("  Net change to balances: ${Money.format(plan.netChangeCents)} across ${plan.accountsAffected} account(s)")
         }
         return when (result) {
@@ -125,7 +130,11 @@ class FinanceCommands(private val db: Database) {
                 appendLine("${result.unitLabel} — account ${result.account}")
                 result.lines.forEach { l ->
                     val due = l.dueDate?.let { " due $it" }.orEmpty()
-                    val corrected = if (l.corrections > 0) "  (corrected ${l.corrections}x)" else ""
+                    val corrected = when {
+                        l.amountCents == 0L -> "  (voided)"
+                        l.corrections > 0 -> "  (corrected ${l.corrections}x)"
+                        else -> ""
+                    }
                     appendLine(
                         "  ${l.date}  ${l.externalId.padEnd(14)} ${l.type.code.padEnd(10)} ${Money.format(l.amountCents).padStart(11)} " +
                             "${Money.format(l.runningBalanceCents).padStart(11)}  ${l.description}$due$corrected",
@@ -162,6 +171,46 @@ class FinanceCommands(private val db: Database) {
             }
             is ReconcileBalances.Result.Invalid -> rejected(result.errors)
             ReconcileBalances.Result.Forbidden -> throw CommandException(forbidden)
+        }
+    }
+}
+
+/**
+ * `convert-register` (ED-42): turns the HOA register workbook into the canonical import files. Needs
+ * no database; it only reads the workbook and writes the three CSV files into --out.
+ */
+object RegisterCommands {
+    private val FILES = listOf("transactions.csv", "expected-balances.csv", "accounts.csv")
+
+    fun convert(args: List<String>): String {
+        val o = parseOptions(args, setOf("file", "year", "out"))
+        val file = Path.of(o["file"]?.takeIf { it.isNotBlank() } ?: throw CommandException("Missing --file", 2))
+        val year = o["year"]?.toIntOrNull()?.takeIf { it in 2000..2100 } ?: throw CommandException("--year must be a year such as 2026", 2)
+        val out = Path.of(o["out"]?.takeIf { it.isNotBlank() } ?: throw CommandException("Missing --out", 2))
+        if (!Files.isRegularFile(file)) throw CommandException("No file at $file")
+        if (Files.size(file) > RegisterWorkbook.MAX_BYTES) throw CommandException("The workbook is larger than 20 MiB")
+
+        val output = when (val result = RegisterWorkbook.convert(Files.readAllBytes(file), year)) {
+            is RegisterWorkbook.Result.Converted -> result.output
+            is RegisterWorkbook.Result.Invalid ->
+                throw CommandException("Workbook not converted; nothing was written:\n" + result.errors.joinToString("\n") { "  $it" })
+        }
+        Files.createDirectories(out)
+        listOf(output.transactionsCsv, output.expectedBalancesCsv, output.accountsCsv).zip(FILES).forEach { (bytes, name) ->
+            Files.write(out.resolve(name), bytes)
+        }
+        val s = output.summary
+        val months = s.duesMonths.joinToString { it.getDisplayName(TextStyle.SHORT, Locale.US) }.ifEmpty { "none" }
+        return buildString {
+            appendLine("Converted $year: ${s.units} units; every unit's balance matches the sheet's $year Balance.")
+            appendLine("  Dues charges: ${s.duesCharges} (months due: $months)")
+            appendLine("  Units with a carried-forward balance from ${year - 1}: ${s.openingBalances}")
+            appendLine("  Payments: ${s.payments}, late fees: ${s.lateFees}, waivers: ${s.waivers}, adjustments: ${s.adjustments}")
+            if (s.zeroRows > 0) appendLine("  Rows with amount 0 or blank (void if already imported): ${s.zeroRows}")
+            if (s.outsideYear.isNotEmpty()) appendLine("  Unit rows dated outside $year, left out as the sheet does: ${s.outsideYear.joinToString()}")
+            appendLine("  Other register rows (not a unit's): ${s.otherRows}")
+            appendLine("Wrote ${FILES.joinToString { out.resolve(it).toString() }}")
+            append("Next: import-accounts (first time only), import-transactions, then reconcile-balances with expected-balances.csv.")
         }
     }
 }

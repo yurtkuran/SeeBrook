@@ -55,7 +55,8 @@ class ParsingTest {
             "A-1,CH-1001,2026-01-01,assessment,Dues,450.00,",
         )
         errors.map { it.line to it.column } shouldContainExactly listOf(
-            2L to "date", 3L to "transaction_id", 3L to "type", 3L to "amount", 4L to "amount", 5L to "amount", 6L to "due_date",
+            // Line 5's amount 0 is valid: it voids a known transaction (ED-42).
+            2L to "date", 3L to "transaction_id", 3L to "type", 3L to "amount", 4L to "amount", 6L to "due_date",
             7L to "transaction_id",
         )
         errors.first { it.line == 4L }.message shouldContain "payment needs a negative amount"

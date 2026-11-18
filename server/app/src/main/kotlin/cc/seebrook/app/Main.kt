@@ -3,6 +3,7 @@ package cc.seebrook.app
 import cc.seebrook.app.cli.AdminCommands
 import cc.seebrook.app.cli.CommandException
 import cc.seebrook.app.cli.FinanceCommands
+import cc.seebrook.app.cli.RegisterCommands
 import cc.seebrook.app.devtools.DevAuth
 import cc.seebrook.app.devtools.DevSeed
 import cc.seebrook.app.http.seebrookModule
@@ -84,6 +85,10 @@ Finance (positive balances are owed, negative are credits):
   reconcile-balances --operator <email> --hoa <slug> --file <csv>
                              Compare ledger balances with the spreadsheet's (columns account,balance) and check the
                              ledger; exits 1 unless everything matches.
+  convert-register --file <xlsx> --year <yyyy> --out <dir>
+                             Convert the HOA register workbook into transactions.csv, expected-balances.csv and
+                             accounts.csv in <dir>; checks every unit against the sheet's balance first. Needs no
+                             database. Keep <dir> outside the repository: the files hold real financial data.
 
 Background jobs:
   run-jobs                   Run queued jobs now (invitation emails, document scans) and exit. `serve` runs them continuously."""
@@ -117,6 +122,17 @@ fun main(args: Array<String>) {
         "dev-invite" -> if (operands.size != 2) usage()
         "dev-token" -> if (operands.size !in 1..2 || (operands.size == 2 && operands[1] != "--unverified")) usage()
         in ADMIN_COMMANDS, in FINANCE_COMMANDS -> {}
+        "convert-register" -> {
+            // Needs no configuration or database: it only reads the workbook and writes CSV files.
+            try {
+                println(RegisterCommands.convert(operands))
+            } catch (e: CommandException) {
+                System.err.println("Error: ${e.message}")
+                if (e.exitCode == 2) System.err.println(USAGE)
+                exitProcess(e.exitCode)
+            }
+            return
+        }
         else -> usage()
     }
 

@@ -29,6 +29,8 @@ dependencies {
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.kotlinx.serialization.json)
     runtimeOnly(libs.logback.classic)
+    // Apache POI logs through Log4j 2; route it to Logback.
+    runtimeOnly(libs.log4j.to.slf4j)
 
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
@@ -38,6 +40,7 @@ dependencies {
     testImplementation(libs.ktor.client.content.negotiation)
     testImplementation(libs.nimbus.jose.jwt)
     testImplementation(libs.pdfbox)
+    testImplementation(libs.poi.ooxml)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 

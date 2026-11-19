@@ -9,6 +9,7 @@ import cc.seebrook.platform.auth.RoleGrant
 import cc.seebrook.platform.auth.UserActor
 import cc.seebrook.platform.auth.VerifiedIdentity
 import cc.seebrook.platform.db.Database
+import cc.seebrook.platform.email.Recipient
 import org.jooq.DSLContext
 import java.util.UUID
 
@@ -78,4 +79,17 @@ class GetMe(private val db: Database) {
             .from(USER_ACCOUNT)
             .where(USER_ACCOUNT.ID.eq(actor.userId))
             .fetchSingle { MeView(requireNotNull(it.value1()), it.value2(), it.value3()) }
+}
+
+/**
+ * A user's email address and name, for emails about their own actions (receipts, ED-45). Null
+ * for a disabled or unknown user: nothing is sent.
+ */
+class UserContacts(private val db: Database) {
+    fun find(userId: UUID): Recipient? =
+        db.dsl.select(USER_ACCOUNT.EMAIL, USER_ACCOUNT.DISPLAY_NAME, USER_ACCOUNT.STATUS).from(USER_ACCOUNT)
+            .where(USER_ACCOUNT.ID.eq(userId))
+            .fetchOne()
+            ?.takeIf { it.value3() == "active" }
+            ?.let { Recipient(it.value1(), it.value2()) }
 }

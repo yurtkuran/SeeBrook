@@ -103,9 +103,10 @@ class PaymentCommands(private val db: Database, private val providers: PaymentPr
         }
         Files.write(out, RegisterPaymentRows.csv(rows, o["category-id"] ?: DEFAULT_DUES_CATEGORY_ID, firstId), StandardOpenOption.CREATE_NEW)
         return buildString {
-            appendLine("Exported ${rows.size} received payment(s) from $from to $to to $out")
+            val (received, back) = rows.partition { it.amountCents > 0 }
+            appendLine("Exported ${received.size} received payment(s) and ${back.size} refund(s) or return(s) from $from to $to to $out")
             if (rows.isNotEmpty()) {
-                appendLine("  Dues total: ${Money.format(rows.sumOf { it.duesCents })}; fees paid by owners: ${Money.format(rows.sumOf { it.feeCents })}")
+                appendLine("  Net to units: ${Money.format(rows.sumOf { it.amountCents })}; fees paid by owners: ${Money.format(rows.sumOf { it.feeCents })}")
             }
             append("Paste the rows into the register with Paste Special > Skip blanks, so its formula columns are kept.")
         }

@@ -2,11 +2,13 @@ package cc.seebrook.finance
 
 import cc.seebrook.db.generated.finance.Tables.ACCOUNT
 import cc.seebrook.db.generated.finance.Tables.PAYMENT
+import cc.seebrook.db.generated.finance.Tables.PAYMENT_ADJUSTMENT
 import cc.seebrook.platform.audit.Audit
 import cc.seebrook.platform.audit.AuditEntry
 import cc.seebrook.platform.auth.Permission
 import cc.seebrook.platform.auth.UserActor
 import cc.seebrook.platform.db.Database
+import cc.seebrook.platform.payments.AdjustmentKind
 import cc.seebrook.platform.payments.PaymentMethod
 import cc.seebrook.tenant.Hoas
 import kotlinx.serialization.json.buildJsonObject
@@ -20,7 +22,7 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
- * Received online payments, as rows for the HOA's register workbook (ED-44), so the bookkeeper's
+ * Received online payments, and their refunds and returns (ED-45), as rows for the HOA's register workbook (ED-44), so the bookkeeper's
  * Excel and Seebrook stay in step. The columns are the register's, in its order, plus
  * `Seebrook Ref`. Only columns the bookkeeper types are filled; the register's formula columns
  * (balances, payee name, category, topic, year, month) are left blank, so pasting with "Skip
@@ -28,16 +30,20 @@ import java.util.UUID
  * not count the payment twice.
  */
 class ExportPayments(private val db: Database) {
+    /**
+     * One register row. [amountCents] uses the register's sign: positive is money received from
+     * the owner, negative is money paid back (a refund or a returned payment).
+     */
     data class Row(
         val reference: String,
         /** The unit's identifier in the HOA's register (its account). */
         val account: String,
-        /** The day the payment was received, in the HOA's time zone. */
-        val receivedOn: LocalDate,
-        val method: PaymentMethod,
-        val duesCents: Long,
+        /** The day the money moved, in the HOA's time zone. */
+        val date: LocalDate,
+        val amountCents: Long,
+        /** The fee the owner paid on top, for a payment; 0 otherwise. */
         val feeCents: Long,
-        val totalCents: Long,
+        val comment: String,
     )
 
     sealed interface Result {
@@ -54,22 +60,44 @@ class ExportPayments(private val db: Database) {
             val zone = ZoneId.of(requireNotNull(Hoas.find(tx, hoaId)).timeZone)
             val start = from.atStartOfDay(zone).toOffsetDateTime()
             val end = to.plusDays(1).atStartOfDay(zone).toOffsetDateTime()
-            val rows = tx.select(PAYMENT.asterisk(), ACCOUNT.EXTERNAL_ID).from(PAYMENT)
+            val payments = tx.select(PAYMENT.asterisk(), ACCOUNT.EXTERNAL_ID).from(PAYMENT)
                 .join(ACCOUNT).on(ACCOUNT.ID.eq(PAYMENT.ACCOUNT_ID))
                 .where(PAYMENT.HOA_ID.eq(hoaId)).and(PAYMENT.STATUS.eq(PaymentStatus.SUCCEEDED.code))
                 .and(PAYMENT.SUCCEEDED_AT.ge(start)).and(PAYMENT.SUCCEEDED_AT.lt(end))
-                .orderBy(PAYMENT.SUCCEEDED_AT, PAYMENT.REFERENCE)
                 .fetch { r ->
-                    Row(
+                    val method = requireNotNull(PaymentMethod.fromCode(r.get(PAYMENT.METHOD)))
+                    val fee = r.get(PAYMENT.FEE_CENTS)
+                    r.get(PAYMENT.SUCCEEDED_AT).toInstant() to Row(
                         reference = r.get(PAYMENT.REFERENCE),
                         account = r.get(ACCOUNT.EXTERNAL_ID),
-                        receivedOn = r.get(PAYMENT.SUCCEEDED_AT).atZoneSameInstant(zone).toLocalDate(),
-                        method = requireNotNull(PaymentMethod.fromCode(r.get(PAYMENT.METHOD))),
-                        duesCents = r.get(PAYMENT.DUES_CENTS),
-                        feeCents = r.get(PAYMENT.FEE_CENTS),
-                        totalCents = r.get(PAYMENT.TOTAL_CENTS),
+                        date = r.get(PAYMENT.SUCCEEDED_AT).atZoneSameInstant(zone).toLocalDate(),
+                        amountCents = r.get(PAYMENT.DUES_CENTS),
+                        feeCents = fee,
+                        comment = buildString {
+                            append("Online payment by ${if (method == PaymentMethod.CARD) "card" else "bank account"}")
+                            if (fee > 0) append("; fee ${Money.format(fee)}; total ${Money.format(r.get(PAYMENT.TOTAL_CENTS))}")
+                        },
                     )
                 }
+            // Refunds and returns that changed a unit's balance (ED-45); fee-only ones do not belong on a unit's row.
+            val adjustments = tx.select(PAYMENT_ADJUSTMENT.asterisk(), PAYMENT.REFERENCE, ACCOUNT.EXTERNAL_ID).from(PAYMENT_ADJUSTMENT)
+                .join(PAYMENT).on(PAYMENT.ID.eq(PAYMENT_ADJUSTMENT.PAYMENT_ID))
+                .join(ACCOUNT).on(ACCOUNT.ID.eq(PAYMENT.ACCOUNT_ID))
+                .where(PAYMENT_ADJUSTMENT.HOA_ID.eq(hoaId)).and(PAYMENT_ADJUSTMENT.DUES_CENTS.ne(0L))
+                .and(PAYMENT_ADJUSTMENT.CREATED_AT.ge(start)).and(PAYMENT_ADJUSTMENT.CREATED_AT.lt(end))
+                .fetch { r ->
+                    val kind = requireNotNull(AdjustmentKind.fromCode(r.get(PAYMENT_ADJUSTMENT.KIND)))
+                    r.get(PAYMENT_ADJUSTMENT.CREATED_AT).toInstant() to Row(
+                        reference = r.get(PAYMENT_ADJUSTMENT.REFERENCE),
+                        account = r.get(ACCOUNT.EXTERNAL_ID),
+                        date = r.get(PAYMENT_ADJUSTMENT.CREATED_AT).atZoneSameInstant(zone).toLocalDate(),
+                        amountCents = -r.get(PAYMENT_ADJUSTMENT.DUES_CENTS),
+                        feeCents = 0,
+                        comment = PaymentStore.adjustmentDescription(kind, r.get(PAYMENT.REFERENCE)) +
+                            "; ${Money.format(r.get(PAYMENT_ADJUSTMENT.AMOUNT_CENTS))} moved",
+                    )
+                }
+            val rows = (payments + adjustments).sortedWith(compareBy({ it.first }, { it.second.reference })).map { it.second }
             Audit.record(
                 tx, actor,
                 AuditEntry(
@@ -116,19 +144,17 @@ object RegisterPaymentRows {
         CSVPrinter(out, CSVFormat.DEFAULT.builder().setRecordSeparator("\r\n").get()).use { printer ->
             printer.printRecord(HEADER)
             rows.forEachIndexed { i, r ->
-                val method = if (r.method == PaymentMethod.CARD) "card" else "bank account"
-                val comment = buildString {
-                    append("Online payment by $method")
-                    if (r.feeCents > 0) append("; fee ${Money.format(r.feeCents)}; total ${Money.format(r.totalCents)}")
-                }
                 printer.printRecord(
-                    ids?.get(i).orEmpty(), categoryId, "", r.receivedOn.format(DATE), TRANSACTION_TYPE, "", "",
-                    plain(r.duesCents), "", "", "", r.account, "", "", "", "", "", "", comment, r.reference,
+                    ids?.get(i).orEmpty(), categoryId, "", r.date.format(DATE), TRANSACTION_TYPE, "", "",
+                    plain(r.amountCents), "", "", "", r.account, "", "", "", "", "", "", r.comment, r.reference,
                 )
             }
         }
         return out.toString().toByteArray(Charsets.UTF_8)
     }
 
-    private fun plain(cents: Long) = "${cents / 100}.${(cents % 100).toString().padStart(2, '0')}"
+    private fun plain(cents: Long): String {
+        val a = kotlin.math.abs(cents)
+        return (if (cents < 0) "-" else "") + "${a / 100}.${(a % 100).toString().padStart(2, '0')}"
+    }
 }

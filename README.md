@@ -105,7 +105,7 @@ seebrook configure-payments --operator <email> --hoa channel-harbor --provider s
 seebrook list-payments --operator <email> --hoa channel-harbor
 ```
 
-Owners quote and pay with `POST /v1/properties/{id}/payments/quote` and `POST /v1/properties/{id}/payments`, and list theirs with `GET /v1/properties/{id}/payments`. Providers call `POST /v1/webhooks/payments/{provider}`; only a confirmed payment credits the ledger, with the dues only. Locally, play the provider's part with `seebrook dev-payment-event --hoa channel-harbor --payment PAY-… --status succeeded`.
+Owners quote and pay with `POST /v1/properties/{id}/payments/quote` and `POST /v1/properties/{id}/payments`, and list theirs with `GET /v1/properties/{id}/payments`. Providers call `POST /v1/webhooks/payments/{provider}`; only a confirmed payment credits the ledger, with the dues only. Owners get an emailed receipt, and notices for failed payments, refunds and returned payments; refunds and disputes are recorded as linked entries, never by changing the payment (ED-45). Locally, play the provider's part with `seebrook dev-payment-event --hoa channel-harbor --payment PAY-… --status succeeded`.
 
 To keep the register workbook in step (ED-44), export received payments as register rows, paste them with Paste Special → Skip blanks, and the next `convert-register` and import recognize them by their `Seebrook Ref` instead of counting them twice:
 

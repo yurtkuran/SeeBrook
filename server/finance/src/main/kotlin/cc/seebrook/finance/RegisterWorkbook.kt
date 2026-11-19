@@ -56,7 +56,7 @@ object RegisterWorkbook {
 
     /** The register column holding a Seebrook online payment's reference (ED-44). */
     const val SEEBROOK_REF = "Seebrook Ref"
-    private val PAYMENT_REF = Regex("^PAY-[0-9A-Z]{8}$")
+    private val PAYMENT_REF = Regex("^PAY-[0-9A-Z]{8}(-[RD][0-9]{1,3}[FW]?)?$")
 
     data class Summary(
         val year: Int,
@@ -310,11 +310,14 @@ object RegisterWorkbook {
                     // An online payment Seebrook already holds: passed on for the import to check (ED-44).
                     when {
                         !PAYMENT_REF.matches(ref) -> errors += "$where: $SEEBROOK_REF '${ref.take(20)}' is not a Seebrook payment reference (PAY-XXXXXXXX)"
-                        cents >= 0 -> errors += "$where: an online payment ($ref) must be money received"
+                        cents == 0L -> errors += "$where: an online payment row ($ref) needs its amount"
+                        cents > 0 && '-' !in ref.removePrefix("PAY-") -> errors += "$where: an online payment ($ref) must be money received"
                         ref in refs -> errors += "$where: $ref also appears on row ${refs.getValue(ref)}"
                         else -> {
                             refs[ref] = line
-                            rows += row(id, payee, TransactionType.PAYMENT, date, null, "Online payment", cents).copy(paymentRef = ref)
+                            // A payment is money received; its refunds and returns (-R1, -D1) are money paid back.
+                            val (type, text) = if (cents < 0) TransactionType.PAYMENT to "Online payment" else TransactionType.ADJUSTMENT to "Online payment refunded or returned"
+                            rows += row(id, payee, type, date, null, text, cents).copy(paymentRef = ref)
                         }
                     }
                     continue

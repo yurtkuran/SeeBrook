@@ -2,6 +2,7 @@ package cc.seebrook.finance
 
 import cc.seebrook.db.generated.finance.Tables.LEDGER_ENTRY
 import cc.seebrook.db.generated.finance.Tables.PAYMENT
+import cc.seebrook.db.generated.finance.Tables.PAYMENT_ADJUSTMENT
 import cc.seebrook.db.generated.finance.Tables.PAYMENT_EVENT
 import cc.seebrook.db.generated.finance.Tables.PAYMENT_METHOD_FEE
 import cc.seebrook.db.generated.finance.Tables.PAYMENT_SETTINGS
@@ -12,6 +13,7 @@ import cc.seebrook.platform.auth.Channel
 import cc.seebrook.platform.auth.Permission
 import cc.seebrook.platform.auth.UserActor
 import cc.seebrook.platform.db.Database
+import cc.seebrook.platform.payments.AdjustmentKind
 import cc.seebrook.platform.payments.CreatePaymentRequest
 import cc.seebrook.platform.payments.PaymentEvent
 import cc.seebrook.platform.payments.PaymentMethod
@@ -139,8 +141,14 @@ internal object PaymentStore {
         succeededAt = r.succeededAt?.toInstant(),
     )
 
-    /** Settled payments of one account as ledger-backed lines: each credits its dues only (GA-22). */
+    /**
+     * Settled payments of one account as ledger-backed lines: each credits its dues only (GA-22);
+     * refunds and disputes follow as their own lines (ED-45).
+     */
     fun settledLines(tx: DSLContext, hoaId: UUID, accountId: UUID, zone: ZoneId): List<OwnerFinance.Row> =
+        paymentLines(tx, hoaId, accountId, zone) + adjustmentLines(tx, hoaId, accountId, zone)
+
+    private fun paymentLines(tx: DSLContext, hoaId: UUID, accountId: UUID, zone: ZoneId): List<OwnerFinance.Row> =
         tx.selectFrom(PAYMENT)
             .where(PAYMENT.HOA_ID.eq(hoaId)).and(PAYMENT.ACCOUNT_ID.eq(accountId)).and(PAYMENT.STATUS.eq(PaymentStatus.SUCCEEDED.code))
             .fetch {
@@ -151,17 +159,75 @@ internal object PaymentStore {
                 )
             }
 
-    data class Recorded(val accountId: UUID, val status: PaymentStatus, val duesCents: Long)
+    /**
+     * What Seebrook holds under a reference the HOA's records quote (ED-44, ED-45): [received] is
+     * false for a payment not received yet; [ledgerCents] is its effect on what the owner owes
+     * (negative for a payment, positive for a refund or return).
+     */
+    data class Recorded(val accountId: UUID, val received: Boolean, val status: String, val ledgerCents: Long)
 
-    /** Payments of one HOA by reference, for checking the HOA's records of them (ED-44). */
-    fun byReferences(tx: DSLContext, hoaId: UUID, references: Collection<String>): Map<String, Recorded> =
-        if (references.isEmpty()) {
-            emptyMap()
-        } else {
-            tx.select(PAYMENT.REFERENCE, PAYMENT.ACCOUNT_ID, PAYMENT.STATUS, PAYMENT.DUES_CENTS).from(PAYMENT)
-                .where(PAYMENT.HOA_ID.eq(hoaId)).and(PAYMENT.REFERENCE.`in`(references))
-                .fetch().associate { it.value1() to Recorded(requireNotNull(it.value2()), PaymentStatus.fromCode(it.value3()), it.value4()) }
-        }
+    /** Payments and their adjustments of one HOA by reference. */
+    fun byReferences(tx: DSLContext, hoaId: UUID, references: Collection<String>): Map<String, Recorded> {
+        if (references.isEmpty()) return emptyMap()
+        val payments = tx.select(PAYMENT.REFERENCE, PAYMENT.ACCOUNT_ID, PAYMENT.STATUS, PAYMENT.DUES_CENTS).from(PAYMENT)
+            .where(PAYMENT.HOA_ID.eq(hoaId)).and(PAYMENT.REFERENCE.`in`(references))
+            .fetch().associate {
+                it.value1() to Recorded(requireNotNull(it.value2()), it.value3() == PaymentStatus.SUCCEEDED.code, it.value3(), -it.value4())
+            }
+        val adjustments = tx.select(PAYMENT_ADJUSTMENT.REFERENCE, PAYMENT.ACCOUNT_ID, PAYMENT_ADJUSTMENT.KIND, PAYMENT_ADJUSTMENT.DUES_CENTS)
+            .from(PAYMENT_ADJUSTMENT).join(PAYMENT).on(PAYMENT.ID.eq(PAYMENT_ADJUSTMENT.PAYMENT_ID))
+            .where(PAYMENT_ADJUSTMENT.HOA_ID.eq(hoaId)).and(PAYMENT_ADJUSTMENT.REFERENCE.`in`(references))
+            .fetch().associate { it.value1() to Recorded(requireNotNull(it.value2()), true, it.value3(), it.value4()) }
+        return payments + adjustments
+    }
+
+    data class Adjustment(
+        val id: UUID,
+        val paymentId: UUID,
+        val kind: AdjustmentKind,
+        val providerRef: String,
+        val reference: String,
+        val amountCents: Long,
+        val duesCents: Long,
+        val createdAt: Instant,
+    )
+
+    private fun toAdjustment(r: cc.seebrook.db.generated.finance.tables.records.PaymentAdjustmentRecord) = Adjustment(
+        requireNotNull(r.id), r.paymentId, requireNotNull(AdjustmentKind.fromCode(r.kind)), r.providerRef, r.reference,
+        r.amountCents, r.duesCents, r.createdAt.toInstant(),
+    )
+
+    fun adjustments(tx: DSLContext, paymentId: UUID): List<Adjustment> =
+        tx.selectFrom(PAYMENT_ADJUSTMENT).where(PAYMENT_ADJUSTMENT.PAYMENT_ID.eq(paymentId))
+            .orderBy(PAYMENT_ADJUSTMENT.CREATED_AT, PAYMENT_ADJUSTMENT.ID).fetch(::toAdjustment)
+
+    /** Adjustments that changed one account's balance, as history lines (ED-45). */
+    fun adjustmentLines(tx: DSLContext, hoaId: UUID, accountId: UUID, zone: ZoneId): List<OwnerFinance.Row> =
+        tx.select(PAYMENT_ADJUSTMENT.asterisk(), PAYMENT.REFERENCE).from(PAYMENT_ADJUSTMENT)
+            .join(PAYMENT).on(PAYMENT.ID.eq(PAYMENT_ADJUSTMENT.PAYMENT_ID))
+            .where(PAYMENT_ADJUSTMENT.HOA_ID.eq(hoaId)).and(PAYMENT.ACCOUNT_ID.eq(accountId)).and(PAYMENT_ADJUSTMENT.DUES_CENTS.ne(0L))
+            .fetch { r ->
+                val a = toAdjustment(r.into(PAYMENT_ADJUSTMENT))
+                OwnerFinance.Row(
+                    a.id, a.reference, TransactionType.ADJUSTMENT, a.createdAt.atZone(zone).toLocalDate(), null,
+                    adjustmentDescription(a.kind, r.get(PAYMENT.REFERENCE)), a.duesCents,
+                )
+            }
+
+    fun adjustmentDescription(kind: AdjustmentKind, paymentReference: String) = when (kind) {
+        AdjustmentKind.REFUND -> "Refund of online payment $paymentReference"
+        AdjustmentKind.REFUND_FAILED -> "Refund of $paymentReference did not go through"
+        AdjustmentKind.DISPUTE_WITHDRAWN -> "Online payment $paymentReference returned or disputed"
+        AdjustmentKind.DISPUTE_REINSTATED -> "Online payment $paymentReference reinstated"
+    }
+
+    /** Every account's adjustment total, for the ledger invariant. */
+    fun adjustmentTotals(tx: DSLContext, hoaId: UUID): Map<UUID, Long> =
+        tx.select(PAYMENT.ACCOUNT_ID, DSL.sum(PAYMENT_ADJUSTMENT.DUES_CENTS)).from(PAYMENT_ADJUSTMENT)
+            .join(PAYMENT).on(PAYMENT.ID.eq(PAYMENT_ADJUSTMENT.PAYMENT_ID))
+            .where(PAYMENT_ADJUSTMENT.HOA_ID.eq(hoaId))
+            .groupBy(PAYMENT.ACCOUNT_ID)
+            .fetch().associate { requireNotNull(it.value1()) to it.value2().toLong() }
 
     /** Dues of payments submitted but not settled yet: shown apart from the confirmed balance. */
     fun pendingCents(tx: DSLContext, hoaId: UUID, accountId: UUID): Long =
@@ -169,12 +235,18 @@ internal object PaymentStore {
             .where(PAYMENT.HOA_ID.eq(hoaId)).and(PAYMENT.ACCOUNT_ID.eq(accountId)).and(PAYMENT.STATUS.eq(PaymentStatus.PROCESSING.code))
             .fetchSingle().value1().toLong()
 
-    /** Every account's settled payment total (negative), for the ledger invariant. */
-    fun settledTotals(tx: DSLContext, hoaId: UUID): Map<UUID, Long> =
-        tx.select(PAYMENT.ACCOUNT_ID, DSL.sum(PAYMENT.DUES_CENTS)).from(PAYMENT)
+    /**
+     * Every account's total from online payments, for the ledger invariant: settled dues
+     * (negative) plus their refunds, failed refunds and disputes (ED-45).
+     */
+    fun settledTotals(tx: DSLContext, hoaId: UUID): Map<UUID, Long> {
+        val paid = tx.select(PAYMENT.ACCOUNT_ID, DSL.sum(PAYMENT.DUES_CENTS)).from(PAYMENT)
             .where(PAYMENT.HOA_ID.eq(hoaId)).and(PAYMENT.STATUS.eq(PaymentStatus.SUCCEEDED.code))
             .groupBy(PAYMENT.ACCOUNT_ID)
             .fetch().associate { requireNotNull(it.value1()) to -it.value2().toLong() }
+        val adjusted = adjustmentTotals(tx, hoaId)
+        return (paid.keys + adjusted.keys).associateWith { (paid[it] ?: 0L) + (adjusted[it] ?: 0L) }
+    }
 
     fun description(method: PaymentMethod) = when (method) {
         PaymentMethod.CARD -> "Online payment (card)"
@@ -522,6 +594,7 @@ class HandlePaymentEvent(private val db: Database, private val providers: Paymen
             val (outcome, payment, detail) = when (event) {
                 is PaymentEvent.Other -> Triple(Outcome.IGNORED, null, null)
                 is PaymentEvent.PaymentUpdated -> apply(tx, providerName, event)
+                is PaymentEvent.Adjusted -> adjust(tx, providerName, event)
             }
             tx.insertInto(PAYMENT_EVENT)
                 .set(PAYMENT_EVENT.PROVIDER, providerName)
@@ -583,6 +656,11 @@ class HandlePaymentEvent(private val db: Database, private val providers: Paymen
                 .set(LEDGER_ENTRY.PAYMENT_ID, payment.id)
                 .execute()
         }
+        when (next) {
+            PaymentStatus.SUCCEEDED -> PaymentEmailJob.enqueue(tx, payment.hoaId, requireNotNull(payment.id), PaymentEmailJob.Notice.RECEIVED)
+            PaymentStatus.FAILED -> PaymentEmailJob.enqueue(tx, payment.hoaId, requireNotNull(payment.id), PaymentEmailJob.Notice.FAILED)
+            else -> {}
+        }
         Audit.record(
             tx, null, Channel.SYSTEM,
             AuditEntry(
@@ -601,6 +679,84 @@ class HandlePaymentEvent(private val db: Database, private val providers: Paymen
         )
         return Triple(Outcome.APPLIED, payment, "${current.code} -> ${next.code}")
     }
+}
+
+/**
+ * A refund, failed refund, dispute withdrawal or reinstatement of a received payment (GA-19,
+ * ED-45). The payment itself never changes: each money movement is its own adjustment, once per
+ * provider refund or dispute, with a linked compensating ledger entry for its dues part. Money
+ * leaving the HOA reverses dues first (up to what is left of the payment's dues; any rest was
+ * the fee); money coming back restores exactly what the matching refund or withdrawal reversed.
+ */
+private fun HandlePaymentEvent.adjust(tx: DSLContext, providerName: String, event: PaymentEvent.Adjusted): Triple<HandlePaymentEvent.Outcome, PaymentRecord?, String?> {
+    val log = LoggerFactory.getLogger(HandlePaymentEvent::class.java)
+    val payment = tx.selectFrom(PAYMENT)
+        .where(PAYMENT.PROVIDER.eq(providerName)).and(PAYMENT.MERCHANT_REF.eq(event.merchantRef))
+        .and(PAYMENT.PROVIDER_PAYMENT_ID.eq(event.providerPaymentId))
+        .forUpdate().fetchOne()
+    if (payment == null) {
+        log.warn("{} {} event {} matches no payment", providerName, event.kind.code, event.eventId)
+        return Triple(HandlePaymentEvent.Outcome.UNMATCHED, null, "no payment for this provider payment")
+    }
+    fun mismatch(detail: String): Triple<HandlePaymentEvent.Outcome, PaymentRecord?, String?> {
+        log.error("{} {} event {} for payment {}: {}", providerName, event.kind.code, event.eventId, payment.id, detail)
+        return Triple(HandlePaymentEvent.Outcome.MISMATCH, payment, detail)
+    }
+    if (!event.currency.equals(payment.currency, ignoreCase = true)) return mismatch("currency differs")
+    if (payment.status != PaymentStatus.SUCCEEDED.code) return mismatch("payment was not received (${payment.status})")
+    if (event.amountCents > payment.totalCents) return mismatch("amount is more than the payment")
+    val adjustments = PaymentStore.adjustments(tx, requireNotNull(payment.id))
+    if (adjustments.any { it.kind == event.kind && it.providerRef == event.providerRef }) {
+        return Triple(HandlePaymentEvent.Outcome.UNCHANGED, payment, "${event.kind.code} already recorded")
+    }
+    val (duesCents, reference) = if (event.kind.restores) {
+        val undone = if (event.kind == AdjustmentKind.REFUND_FAILED) AdjustmentKind.REFUND else AdjustmentKind.DISPUTE_WITHDRAWN
+        val original = adjustments.firstOrNull { it.kind == undone && it.providerRef == event.providerRef }
+            ?: return mismatch("no earlier ${undone.code} for ${event.providerRef.take(40)}")
+        -original.duesCents to original.reference + (if (event.kind == AdjustmentKind.REFUND_FAILED) "F" else "W")
+    } else {
+        val reversed = adjustments.sumOf { it.duesCents }
+        val letter = if (event.kind == AdjustmentKind.REFUND) "R" else "D"
+        val n = adjustments.count { it.kind == event.kind } + 1
+        minOf(event.amountCents, payment.duesCents - reversed).coerceAtLeast(0) to "${payment.reference}-$letter$n"
+    }
+    val adjustmentId = requireNotNull(
+        tx.insertInto(PAYMENT_ADJUSTMENT)
+            .set(PAYMENT_ADJUSTMENT.HOA_ID, payment.hoaId)
+            .set(PAYMENT_ADJUSTMENT.PAYMENT_ID, payment.id)
+            .set(PAYMENT_ADJUSTMENT.KIND, event.kind.code)
+            .set(PAYMENT_ADJUSTMENT.PROVIDER_REF, event.providerRef.take(255))
+            .set(PAYMENT_ADJUSTMENT.REFERENCE, reference)
+            .set(PAYMENT_ADJUSTMENT.AMOUNT_CENTS, event.amountCents)
+            .set(PAYMENT_ADJUSTMENT.DUES_CENTS, duesCents)
+            .returning(PAYMENT_ADJUSTMENT.ID).fetchSingle().id,
+    )
+    if (duesCents != 0L) {
+        tx.insertInto(LEDGER_ENTRY)
+            .set(LEDGER_ENTRY.HOA_ID, payment.hoaId)
+            .set(LEDGER_ENTRY.ACCOUNT_ID, payment.accountId)
+            .set(LEDGER_ENTRY.AMOUNT_CENTS, duesCents)
+            .set(LEDGER_ENTRY.KIND, if (duesCents > 0) "payment_reversal" else "payment_restored")
+            .set(LEDGER_ENTRY.PAYMENT_ID, payment.id)
+            .set(LEDGER_ENTRY.PAYMENT_ADJUSTMENT_ID, adjustmentId)
+            .execute()
+    }
+    PaymentEmailJob.enqueue(tx, payment.hoaId, requireNotNull(payment.id), PaymentEmailJob.Notice.of(event.kind), adjustmentId)
+    Audit.record(
+        tx, null, Channel.SYSTEM,
+        AuditEntry(
+            action = "finance.payment_${event.kind.code}",
+            hoaId = payment.hoaId,
+            targetType = "payment",
+            targetId = payment.id,
+            details = buildJsonObject {
+                put("reference", reference)
+                put("provider", providerName)
+                put("event", event.eventId)
+            },
+        ),
+    )
+    return Triple(HandlePaymentEvent.Outcome.APPLIED, payment, "${event.kind.code} $reference")
 }
 
 /**

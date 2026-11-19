@@ -145,6 +145,26 @@ class StripePaymentProviderTest {
     }
 
     @Test
+    fun `refund and dispute events are normalized with their PaymentIntent`() {
+        fun adjusted(type: String, obj: String) =
+            verify(event(type, obj)).shouldBeInstanceOf<WebhookVerification.Verified>().event.shouldBeInstanceOf<PaymentEvent.Adjusted>()
+
+        adjusted("refund.created", """{"id":"re_1","object":"refund","amount":5000,"currency":"usd","payment_intent":"pi_123","status":"pending"}""") shouldBe
+            PaymentEvent.Adjusted("evt_1", "refund.created", "acct_hoa1", "pi_123", AdjustmentKind.REFUND, "re_1", 5_000, "USD")
+        adjusted("refund.failed", """{"id":"re_1","amount":5000,"currency":"usd","payment_intent":"pi_123"}""").kind shouldBe AdjustmentKind.REFUND_FAILED
+        adjusted("charge.dispute.funds_withdrawn", """{"id":"dp_1","object":"dispute","amount":35500,"currency":"usd","payment_intent":"pi_123","charge":"ch_1"}""")
+            .let {
+                it.kind shouldBe AdjustmentKind.DISPUTE_WITHDRAWN
+                it.providerRef shouldBe "dp_1"
+                it.amountCents shouldBe 35_500
+            }
+        adjusted("charge.dispute.funds_reinstated", """{"id":"dp_1","amount":35500,"currency":"usd","payment_intent":"pi_123"}""").kind shouldBe
+            AdjustmentKind.DISPUTE_REINSTATED
+        verify(event("refund.created", """{"id":"re_2","amount":5000,"currency":"usd","payment_intent":null}""")).shouldBeInstanceOf<WebhookVerification.Rejected>()
+        StripePaymentProvider.WEBHOOK_EVENTS.size shouldBe 8
+    }
+
+    @Test
     fun `forged, tampered, stale, unsigned or wrong-mode events are rejected`() {
         val payload = event("payment_intent.succeeded")
         fun rejected(result: WebhookVerification) = result.shouldBeInstanceOf<WebhookVerification.Rejected>().reason

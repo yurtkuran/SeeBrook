@@ -88,6 +88,24 @@ class StripePaymentProvider(
         val live = (event["livemode"] as? JsonPrimitive)?.booleanOrNull
         if (live != liveMode) return WebhookVerification.Rejected("event livemode does not match this deployment")
 
+        ADJUSTMENT_EVENTS[type]?.let { kind ->
+            // Refund and Dispute objects both carry the PaymentIntent they belong to.
+            val obj = (event["data"] as? JsonObject)?.get("object") as? JsonObject
+                ?: return WebhookVerification.Rejected("event has no data object")
+            return WebhookVerification.Verified(
+                PaymentEvent.Adjusted(
+                    eventId = eventId,
+                    type = type,
+                    merchantRef = event.string("account").orEmpty(),
+                    providerPaymentId = obj.string("payment_intent") ?: return WebhookVerification.Rejected("$type has no payment_intent"),
+                    kind = kind,
+                    providerRef = obj.string("id") ?: return WebhookVerification.Rejected("$type has no ID"),
+                    amountCents = (obj["amount"] as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 }
+                        ?: return WebhookVerification.Rejected("$type has no amount"),
+                    currency = obj.string("currency")?.uppercase() ?: return WebhookVerification.Rejected("$type has no currency"),
+                ),
+            )
+        }
         val newStatus = EVENT_STATUS[type] ?: return WebhookVerification.Verified(PaymentEvent.Other(eventId, type))
         val intent = (event["data"] as? JsonObject)?.get("object") as? JsonObject
             ?: return WebhookVerification.Rejected("event has no data object")
@@ -165,6 +183,16 @@ class StripePaymentProvider(
             "payment_intent.payment_failed" to ProviderPaymentStatus.FAILED,
             "payment_intent.canceled" to ProviderPaymentStatus.CANCELED,
         )
+
+        private val ADJUSTMENT_EVENTS = mapOf(
+            "refund.created" to AdjustmentKind.REFUND,
+            "refund.failed" to AdjustmentKind.REFUND_FAILED,
+            "charge.dispute.funds_withdrawn" to AdjustmentKind.DISPUTE_WITHDRAWN,
+            "charge.dispute.funds_reinstated" to AdjustmentKind.DISPUTE_REINSTATED,
+        )
+
+        /** The events a Stripe webhook endpoint must send to Seebrook (ED-43, ED-45). */
+        val WEBHOOK_EVENTS: List<String> get() = EVENT_STATUS.keys.toList() + ADJUSTMENT_EVENTS.keys
 
         fun isConnectedAccount(value: String) = CONNECTED_ACCOUNT.matches(value)
 

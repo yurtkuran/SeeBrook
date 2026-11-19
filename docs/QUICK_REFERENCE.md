@@ -95,6 +95,9 @@ $APP reconcile-balances "${O[@]}" --file $OUT/expected-balances.csv      # shoul
 - Locally the provider is **simulated**: no money moves. In production it is Stripe Connect, so each HOA's own Stripe account receives the money.
 - Fee per method: `off` (not accepted), `0` (HOA absorbs), `3%`, `1.50` or `2.9%+0.30`. Only the dues ever reach the owner's balance.
 - Statuses: `created` → `processing` (bank payments take days) → `succeeded`, or `failed` / `canceled`. Only `succeeded` changes the balance; `processing` shows as pending.
+- Refunds are issued in the Stripe dashboard. Seebrook records them, and returned or disputed payments, as their own lines: `PAY-…-R1` refund, `-R1F` refund failed, `-D1` returned or disputed, `-D1W` reinstated. The original payment never changes. Only the dues part changes the balance; the owner's fee does not.
+- Owners get emails automatically: a receipt, a failed-payment notice, and notices for refunds and returned payments. Locally they land in Mailpit (http://localhost:8025).
+- `export-payments` includes refunds and returns as negative rows; paste and import them like payments.
 
 ```bash
 $APP configure-payments "${O[@]}" --provider simulated --merchant sim_channel_harbor \

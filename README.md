@@ -11,7 +11,8 @@ Prerequisites: Eclipse Temurin JDK 21, Docker.
 ```bash
 git config core.hooksPath .githooks   # once per clone: blocks direct commits/pushes to develop and master
 
-scripts/dev.sh            # start PostgreSQL, Mailpit, S3Mock and ClamAV; migrate; load synthetic data; serve on :8088
+scripts/dev.sh            # start PostgreSQL, Mailpit, S3Mock, ClamAV and DbGate; migrate; load synthetic data; serve on :8088
+                          # browse the local database at http://localhost:3001 (DbGate, preconnected)
 curl localhost:8088/health/ready
 scripts/dev.sh down       # stop the local database (scripts/dev.sh reset also deletes its data)
 

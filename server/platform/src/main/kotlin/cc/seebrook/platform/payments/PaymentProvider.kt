@@ -75,6 +75,19 @@ class ProviderPayment(
     override fun toString(): String = "ProviderPayment(providerPaymentId=$providerPaymentId, status=$status, clientParams=****)"
 }
 
+/**
+ * A payment as the provider holds it right now, for reconciliation (ED-46): the same facts a
+ * webhook carries, so a looked-up state is checked and applied exactly like an event.
+ */
+data class ProviderPaymentSnapshot(
+    val providerPaymentId: String,
+    val status: ProviderPaymentStatus,
+    val amountCents: Long,
+    val currency: String,
+    /** A short provider code (e.g. `card_declined`) when [status] is FAILED. */
+    val failureCode: String?,
+)
+
 /** A verified provider event, normalized. */
 sealed interface PaymentEvent {
     val eventId: String
@@ -141,8 +154,15 @@ interface PaymentProvider {
     /** Creates a payment for exactly [CreatePaymentRequest.amountCents]; idempotent on the key. */
     fun createPayment(request: CreatePaymentRequest): ProviderPayment
 
-    /** The payment's current state at the provider, for reconciliation. */
-    fun paymentStatus(merchantRef: String, providerPaymentId: String): ProviderPaymentStatus
+    /** The payment as the provider holds it now, for reconciliation (ED-46). */
+    fun lookupPayment(merchantRef: String, providerPaymentId: String): ProviderPaymentSnapshot
+
+    /**
+     * Returns normally when the provider answers for this merchant account; throws
+     * [PaymentProviderException] when it cannot be reached. Used to end an automatic outage
+     * suspension (ED-46). Moves no money and changes nothing.
+     */
+    fun checkAvailable(merchantRef: String)
 
     /** Checks an incoming webhook's signature and age, then normalizes it. */
     fun verifyWebhook(payload: ByteArray, header: (String) -> String?): WebhookVerification

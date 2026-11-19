@@ -10,6 +10,7 @@ import cc.seebrook.app.devtools.DevPayments
 import cc.seebrook.app.devtools.DevSeed
 import cc.seebrook.app.http.seebrookModule
 import cc.seebrook.db.Migrations
+import cc.seebrook.finance.MonitorPayments
 import cc.seebrook.platform.auth.IdTokenVerifier
 import cc.seebrook.platform.config.AppConfig
 import cc.seebrook.platform.config.AuthConfig
@@ -17,9 +18,11 @@ import cc.seebrook.platform.config.ConfigException
 import cc.seebrook.platform.config.PaymentsConfig
 import cc.seebrook.platform.db.Database
 import cc.seebrook.platform.jobs.JobWorker
+import cc.seebrook.platform.jobs.PeriodicTask
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import org.slf4j.LoggerFactory
+import java.time.Duration
 import kotlin.system.exitProcess
 
 private val log = LoggerFactory.getLogger("cc.seebrook.app")
@@ -105,6 +108,9 @@ Payments (ED-43):
                   [--first-id 2026-00391] [--category-id 101]
                              Received online payments as rows for the register workbook (its columns plus Seebrook
                              Ref), to paste with Skip blanks. Keep the file outside the repository.
+  reconcile-payments         Ask the provider about payments that have not settled and apply what changed (lost or
+                             late webhooks); resume HOAs paused by a provider outage once it answers. `serve` does
+                             this every 5 minutes. System action: no operator.
   dev-payment-event --hoa <slug> --payment <PAY-…> --status <processing|succeeded|failed|canceled> [--failure <code>]
                              Development only: send the simulated provider's webhook to the local server.
 
@@ -123,7 +129,7 @@ private val FINANCE_COMMANDS = setOf(
     "import-accounts", "import-transactions", "list-balances", "account-statement", "reconcile-balances",
 )
 
-private val PAYMENT_COMMANDS = setOf("configure-payments", "payment-settings", "list-payments", "export-payments", "dev-payment-event")
+private val PAYMENT_COMMANDS = setOf("configure-payments", "payment-settings", "list-payments", "export-payments", "reconcile-payments", "dev-payment-event")
 
 private fun usage(): Nothing {
     System.err.println(USAGE)
@@ -211,6 +217,7 @@ fun main(args: Array<String>) {
                         "payment-settings" -> payments.settings(operands)
                         "list-payments" -> payments.list(operands)
                         "export-payments" -> payments.export(operands)
+                        "reconcile-payments" -> payments.reconcile(operands)
                         else -> DevPayments.devPaymentEvent(
                             db, config.environment,
                             (config.payments as? PaymentsConfig.Simulated)?.webhookSecret
@@ -279,10 +286,18 @@ fun main(args: Array<String>) {
                 log.info("Auth: {} (project {})", if (config.auth is AuthConfig.Firebase) "Firebase" else "development tokens", config.auth.projectId)
                 val payments = PaymentSetup.providers(config)
                 log.info("Payments: {}", payments.names.sorted().ifEmpty { listOf("disabled") }.joinToString())
+                // Lost webhooks and provider outages (ED-46).
+                val monitor = if (payments.names.isEmpty()) {
+                    null
+                } else {
+                    val pass = MonitorPayments(db, payments)
+                    PeriodicTask("payments", Duration.ofMinutes(5)) { pass() }.start()
+                }
                 try {
                     embeddedServer(Netty, port = config.httpPort) { seebrookModule(db, verifier, BackgroundJobs.storage(config), payments = payments) }
                         .start(wait = true)
                 } finally {
+                    monitor?.close()
                     worker?.close()
                 }
             }

@@ -57,14 +57,30 @@ data class FeeRule(val basisPoints: Int, val fixedCents: Long) {
     }
 }
 
-/** How one HOA takes payments (ED-43). [methods] holds only the accepted methods. */
+/**
+ * How one HOA takes payments (ED-43). [methods] holds only the accepted methods. [suspended] is
+ * the administrator's hold; [outageSince] is set while payments are paused automatically because
+ * the provider cannot be reached, and clears itself once it answers again (ED-46).
+ */
 data class PaymentSettings(
     val hoaId: UUID,
     val provider: String,
     val merchantRef: String,
     val suspended: Boolean,
     val methods: Map<PaymentMethod, FeeRule>,
+    val outageSince: Instant? = null,
 )
+
+/** Whether the owners of an HOA can pay online right now (ED-46). */
+enum class OnlinePayments(val code: String) {
+    AVAILABLE("available"),
+
+    /** Paused: an administrator's hold or a provider outage. History stays readable. */
+    UNAVAILABLE("unavailable"),
+
+    /** The HOA does not take online payments. */
+    NOT_OFFERED("not_offered"),
+}
 
 enum class PaymentStatus(val code: String) {
     CREATED("created"),
@@ -123,7 +139,16 @@ internal object PaymentStore {
         val row = tx.selectFrom(PAYMENT_SETTINGS).where(PAYMENT_SETTINGS.HOA_ID.eq(hoaId)).fetchOne() ?: return null
         val methods = tx.selectFrom(PAYMENT_METHOD_FEE).where(PAYMENT_METHOD_FEE.HOA_ID.eq(hoaId)).fetch()
             .associate { requireNotNull(PaymentMethod.fromCode(it.method)) to FeeRule(it.feeBasisPoints, it.feeFixedCents) }
-        return PaymentSettings(hoaId, row.provider, row.merchantRef, row.suspended, methods)
+        return PaymentSettings(hoaId, row.provider, row.merchantRef, row.suspended, methods, row.outageSince?.toInstant())
+    }
+
+    fun availability(tx: DSLContext, hoaId: UUID, providers: PaymentProviders): OnlinePayments {
+        val settings = settings(tx, hoaId)
+        return when {
+            settings == null || providers[settings.provider] == null || settings.methods.isEmpty() -> OnlinePayments.NOT_OFFERED
+            settings.suspended || settings.outageSince != null -> OnlinePayments.UNAVAILABLE
+            else -> OnlinePayments.AVAILABLE
+        }
     }
 
     fun toPayment(r: PaymentRecord) = Payment(
@@ -368,9 +393,8 @@ private fun paymentAccess(tx: DSLContext, actor: UserActor, propertyId: UUID, pr
         OwnerFinance.Access.NotFound -> return PaymentAccess.NotFound
         OwnerFinance.Access.NoAccount -> return PaymentAccess.NoAccount
     }
-    val settings = PaymentStore.settings(tx, context.period.hoaId)
-    if (settings == null || settings.suspended || providers[settings.provider] == null || settings.methods.isEmpty()) return PaymentAccess.Unavailable
-    return PaymentAccess.Ready(context, settings)
+    if (PaymentStore.availability(tx, context.period.hoaId, providers) != OnlinePayments.AVAILABLE) return PaymentAccess.Unavailable
+    return PaymentAccess.Ready(context, requireNotNull(PaymentStore.settings(tx, context.period.hoaId)))
 }
 
 /**
@@ -532,8 +556,10 @@ class InitiatePayment(private val db: Database, private val providers: PaymentPr
             return Result.ProviderRejected
         } catch (e: PaymentProviderException) {
             log.warn("Provider {} unavailable for payment {}: {}", record.provider, record.id, e.message)
+            PaymentOutage.failed(db, record.hoaId, record.provider)
             return Result.ProviderUnavailable
         }
+        PaymentOutage.answered(db, record.hoaId)
         db.transaction { tx ->
             val stored = tx.update(PAYMENT)
                 .set(PAYMENT.PROVIDER_PAYMENT_ID, created.providerPaymentId)
@@ -585,11 +611,19 @@ class HandlePaymentEvent(private val db: Database, private val providers: Paymen
                 return Result.Rejected(v.reason)
             }
         }
-        return db.transaction { tx ->
+        return Result.Accepted(record(providerName, event))
+    }
+
+    /**
+     * Applies one verified event, once per event ID. Reconciliation (ED-46) passes what it looked
+     * up at the provider through here too, so both paths share every check.
+     */
+    internal fun record(providerName: String, event: PaymentEvent): Outcome =
+        db.transaction { tx ->
             // Concurrent deliveries of one event wait here, then see it as already received.
             tx.execute("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "$providerName/${event.eventId}")
             if (tx.fetchExists(PAYMENT_EVENT, PAYMENT_EVENT.PROVIDER.eq(providerName).and(PAYMENT_EVENT.EVENT_ID.eq(event.eventId)))) {
-                return@transaction Result.Accepted(Outcome.DUPLICATE)
+                return@transaction Outcome.DUPLICATE
             }
             val (outcome, payment, detail) = when (event) {
                 is PaymentEvent.Other -> Triple(Outcome.IGNORED, null, null)
@@ -605,9 +639,8 @@ class HandlePaymentEvent(private val db: Database, private val providers: Paymen
                 .set(PAYMENT_EVENT.OUTCOME, outcome.code)
                 .set(PAYMENT_EVENT.DETAIL, detail?.take(200))
                 .execute()
-            Result.Accepted(outcome)
+            outcome
         }
-    }
 
     private fun apply(tx: DSLContext, providerName: String, event: PaymentEvent.PaymentUpdated): Triple<Outcome, PaymentRecord?, String?> {
         val byProviderId = tx.selectFrom(PAYMENT)

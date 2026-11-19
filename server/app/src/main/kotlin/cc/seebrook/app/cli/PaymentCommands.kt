@@ -7,6 +7,7 @@ import cc.seebrook.finance.FeeRule
 import cc.seebrook.finance.GetPaymentSettings
 import cc.seebrook.finance.ListHoaPayments
 import cc.seebrook.finance.Money
+import cc.seebrook.finance.MonitorPayments
 import cc.seebrook.finance.PaymentSettings
 import cc.seebrook.identity.ResolveOperator
 import cc.seebrook.platform.auth.Permission
@@ -112,9 +113,26 @@ class PaymentCommands(private val db: Database, private val providers: PaymentPr
         }
     }
 
+    /** One monitoring pass now (ED-46); the server runs the same pass every few minutes. A system action: no operator. */
+    fun reconcile(args: List<String>): String {
+        if (args.isNotEmpty()) throw CommandException("reconcile-payments takes no options", 2)
+        if (providers.names.isEmpty()) return "Payments are disabled; nothing to reconcile."
+        val s = MonitorPayments(db, providers)()
+        return buildString {
+            append("Checked ${s.checked} unsettled payment(s) with the provider; ${s.applied} updated")
+            if (s.mismatched > 0) append("; ${s.mismatched} did not match and need investigation (see the log)")
+            if (s.providerErrors > 0) append("; ${s.providerErrors} lookup(s) failed")
+            append(".")
+            if (s.outagesStarted > 0) append("\nPayments paused for ${s.outagesStarted} HOA(s): the provider is not answering.")
+            if (s.resumed > 0) append("\nPayments resumed for ${s.resumed} HOA(s).")
+            if (s.paused > 0) append("\n${s.paused} HOA(s) remain paused until the provider answers.")
+        }
+    }
+
     private fun describe(s: PaymentSettings): String = buildString {
         append("${s.provider} merchant ${s.merchantRef}")
         if (s.suspended) append(" (SUSPENDED)")
+        s.outageSince?.let { append(" (PAUSED: provider unreachable since ${it.toString().take(19).replace('T', ' ')} UTC; resumes automatically)") }
         PaymentMethod.entries.forEach { m ->
             append("; ${m.code}: ")
             append(s.methods[m]?.let(::describeFee) ?: "not accepted")

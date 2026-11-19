@@ -3,6 +3,7 @@ package cc.seebrook.app.http
 import cc.seebrook.finance.GetAccountSummary
 import cc.seebrook.finance.ListAccountTransactions
 import cc.seebrook.platform.db.Database
+import cc.seebrook.platform.payments.PaymentProviders
 import cc.seebrook.shared.api.AccountSummaryResponse
 import cc.seebrook.shared.api.AccountTransactionResponse
 import cc.seebrook.shared.api.AccountTransactionsPageResponse
@@ -17,8 +18,8 @@ import java.time.Clock
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
-class FinanceActions(db: Database, clock: Clock = Clock.systemUTC()) {
-    val summary = GetAccountSummary(db, clock)
+class FinanceActions(db: Database, clock: Clock = Clock.systemUTC(), payments: PaymentProviders = PaymentProviders.NONE) {
+    val summary = GetAccountSummary(db, clock, payments)
     val transactions = ListAccountTransactions(db)
 }
 
@@ -49,6 +50,7 @@ fun Route.financeRoutes(accounts: AccountActions, actions: FinanceActions) {
                                 asOfDate = asOfDate.toString(),
                                 updatedAt = updatedAt?.let(DateTimeFormatter.ISO_INSTANT::format),
                                 pendingPaymentsCents = pendingPaymentsCents,
+                                onlinePayments = onlinePayments.code,
                             ),
                         )
                     }

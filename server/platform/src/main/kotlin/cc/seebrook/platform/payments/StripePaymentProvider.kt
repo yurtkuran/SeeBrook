@@ -70,9 +70,22 @@ class StripePaymentProvider(
         )
     }
 
-    override fun paymentStatus(merchantRef: String, providerPaymentId: String): ProviderPaymentStatus {
+    override fun lookupPayment(merchantRef: String, providerPaymentId: String): ProviderPaymentSnapshot {
         require(PAYMENT_INTENT_ID.matches(providerPaymentId)) { "not a PaymentIntent ID" }
-        return status(call(HttpRequest.newBuilder(URI("$base/v1/payment_intents/$providerPaymentId")).GET(), merchantRef))
+        val intent = call(HttpRequest.newBuilder(URI("$base/v1/payment_intents/$providerPaymentId")).GET(), merchantRef)
+        val status = status(intent)
+        return ProviderPaymentSnapshot(
+            providerPaymentId = intent.string("id") ?: throw PaymentProviderException("Stripe returned a payment without an ID"),
+            status = status,
+            amountCents = (intent["amount"] as? JsonPrimitive)?.longOrNull ?: throw PaymentProviderException("Stripe returned a payment without an amount"),
+            currency = intent.string("currency")?.uppercase() ?: throw PaymentProviderException("Stripe returned a payment without a currency"),
+            failureCode = if (status == ProviderPaymentStatus.FAILED) failureCode(intent) else null,
+        )
+    }
+
+    /** Reads the connected account's balance: a harmless request that needs Stripe and the account to answer. */
+    override fun checkAvailable(merchantRef: String) {
+        call(HttpRequest.newBuilder(URI("$base/v1/balance")).GET(), merchantRef)
     }
 
     override fun verifyWebhook(payload: ByteArray, header: (String) -> String?): WebhookVerification {
@@ -109,7 +122,6 @@ class StripePaymentProvider(
         val newStatus = EVENT_STATUS[type] ?: return WebhookVerification.Verified(PaymentEvent.Other(eventId, type))
         val intent = (event["data"] as? JsonObject)?.get("object") as? JsonObject
             ?: return WebhookVerification.Rejected("event has no data object")
-        val error = intent["last_payment_error"] as? JsonObject
         return WebhookVerification.Verified(
             PaymentEvent.PaymentUpdated(
                 eventId = eventId,
@@ -120,7 +132,7 @@ class StripePaymentProvider(
                 amountCents = (intent["amount"] as? JsonPrimitive)?.longOrNull ?: return WebhookVerification.Rejected("payment has no amount"),
                 currency = intent.string("currency")?.uppercase() ?: return WebhookVerification.Rejected("payment has no currency"),
                 seebrookPaymentId = (intent["metadata"] as? JsonObject)?.string(METADATA_PAYMENT_ID),
-                failureCode = if (newStatus == ProviderPaymentStatus.FAILED) (error?.string("decline_code") ?: error?.string("code"))?.take(64) else null,
+                failureCode = if (newStatus == ProviderPaymentStatus.FAILED) failureCode(intent) else null,
             ),
         )
     }
@@ -158,6 +170,11 @@ class StripePaymentProvider(
         "requires_payment_method" ->
             if (intent["last_payment_error"].let { it != null && it != JsonNull }) ProviderPaymentStatus.FAILED else ProviderPaymentStatus.AWAITING_OWNER
         else -> ProviderPaymentStatus.AWAITING_OWNER
+    }
+
+    private fun failureCode(intent: JsonObject): String? {
+        val error = intent["last_payment_error"] as? JsonObject
+        return (error?.string("decline_code") ?: error?.string("code"))?.take(64)
     }
 
     private fun methodType(method: PaymentMethod) = when (method) {

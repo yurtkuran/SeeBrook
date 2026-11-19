@@ -98,12 +98,15 @@ $APP reconcile-balances "${O[@]}" --file $OUT/expected-balances.csv      # shoul
 - Refunds are issued in the Stripe dashboard. Seebrook records them, and returned or disputed payments, as their own lines: `PAY-…-R1` refund, `-R1F` refund failed, `-D1` returned or disputed, `-D1W` reinstated. The original payment never changes. Only the dues part changes the balance; the owner's fee does not.
 - Owners get emails automatically: a receipt, a failed-payment notice, and notices for refunds and returned payments. Locally they land in Mailpit (http://localhost:8025).
 - `export-payments` includes refunds and returns as negative rows; paste and import them like payments.
+- Lost webhooks fix themselves: every 5 minutes the server asks Stripe about payments still unsettled after 15 minutes (each at most hourly) and applies what changed, once. Run a pass now with `$APP reconcile-payments`. A lookup that doesn't fit (another amount) is never applied; look for `did not match` in its output and ERROR lines in the log.
+- If Stripe stops answering (3 calls in a row), that HOA's payments pause on their own: owners see their history, but paying is disabled. They resume automatically once Stripe answers. `payment-settings` shows `PAUSED`. Your own `--suspended true` hold never lifts by itself.
 
 ```bash
 $APP configure-payments "${O[@]}" --provider simulated --merchant sim_channel_harbor \
   --card-fee 2.9%+0.30 --ach-fee 0                    # dry run; add --commit --reason "..."; --suspended true pauses payments
 $APP payment-settings "${O[@]}"
 $APP list-payments "${O[@]}" [--unit "Unit 05"]
+$APP reconcile-payments                               # one reconciliation pass now (no operator; the server runs it every 5 minutes)
 $APP dev-payment-event --hoa channel-harbor --payment PAY-XXXXXXXX --status succeeded   # local only: play the provider
 ```
 

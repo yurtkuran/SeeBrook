@@ -45,7 +45,9 @@ class StripeMockTest {
             payment.providerPaymentId shouldStartWith "pi_"
             payment.clientParams.getValue("clientSecret") shouldStartWith "pi_"
             payment.clientParams.getValue("stripeAccount") shouldBe "acct_1Hoa"
-            stripe.paymentStatus("acct_1Hoa", payment.providerPaymentId) // a valid retrieve request
+            // stripe-mock answers with a fixture (not stateful): the request is valid and the response parses.
+            stripe.lookupPayment("acct_1Hoa", payment.providerPaymentId).providerPaymentId shouldStartWith "pi_"
         }
+        stripe.checkAvailable("acct_1Hoa") // a valid balance request
     }
 }

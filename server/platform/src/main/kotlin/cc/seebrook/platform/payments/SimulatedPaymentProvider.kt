@@ -28,7 +28,13 @@ class SimulatedPaymentProvider(
         return ProviderPayment(paymentId(request.merchantRef, request.idempotencyKey), ProviderPaymentStatus.AWAITING_OWNER, mapOf("simulated" to "true"))
     }
 
-    override fun paymentStatus(merchantRef: String, providerPaymentId: String) = ProviderPaymentStatus.AWAITING_OWNER
+    /** Keeps no state: every payment looks unfinished, so reconciliation leaves it to the webhooks. */
+    override fun lookupPayment(merchantRef: String, providerPaymentId: String) =
+        ProviderPaymentSnapshot(providerPaymentId, ProviderPaymentStatus.AWAITING_OWNER, 0, "USD", null)
+
+    override fun checkAvailable(merchantRef: String) {
+        if (!merchantRef.startsWith(MERCHANT_PREFIX)) throw PaymentRequestRejectedException("unknown simulated merchant")
+    }
 
     override fun verifyWebhook(payload: ByteArray, header: (String) -> String?): WebhookVerification {
         val signature = header(SIGNATURE_HEADER) ?: return WebhookVerification.Rejected("missing $SIGNATURE_HEADER header")

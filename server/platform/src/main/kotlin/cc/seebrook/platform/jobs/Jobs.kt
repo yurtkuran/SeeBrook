@@ -205,3 +205,37 @@ class JobWorker(private val runner: JobRunner, private val interval: Duration = 
         executor.awaitTermination(30, TimeUnit.SECONDS)
     }
 }
+
+/**
+ * Runs [task] on its own background thread every [interval] while the server is up (ED-46). For
+ * checks that are safe to repeat and to run on several servers at once; a failing pass is logged
+ * (type only) and the next one runs as planned.
+ */
+class PeriodicTask(
+    private val name: String,
+    private val interval: Duration,
+    private val initialDelay: Duration = Duration.ofMinutes(1),
+    private val task: () -> Unit,
+) : AutoCloseable {
+    private val log = LoggerFactory.getLogger(PeriodicTask::class.java)
+    private val executor = Executors.newSingleThreadScheduledExecutor { Thread(it, "seebrook-$name").apply { isDaemon = true } }
+
+    fun start(): PeriodicTask {
+        executor.scheduleWithFixedDelay(
+            {
+                try {
+                    task()
+                } catch (e: Exception) {
+                    log.error("Periodic task {} failed with {}", name, e.javaClass.simpleName)
+                }
+            },
+            initialDelay.toMillis(), interval.toMillis(), TimeUnit.MILLISECONDS,
+        )
+        return this
+    }
+
+    override fun close() {
+        executor.shutdown()
+        executor.awaitTermination(30, TimeUnit.SECONDS)
+    }
+}

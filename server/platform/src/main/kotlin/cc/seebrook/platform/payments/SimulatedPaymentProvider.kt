@@ -37,6 +37,21 @@ class SimulatedPaymentProvider(
             ?: return WebhookVerification.Rejected("payload is not a JSON object")
         fun text(key: String) = (event[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
         val id = text("id") ?: return WebhookVerification.Rejected("event has no ID")
+        text("adjustment")?.let { code ->
+            val kind = AdjustmentKind.fromCode(code) ?: return WebhookVerification.Rejected("unknown adjustment '$code'")
+            return WebhookVerification.Verified(
+                PaymentEvent.Adjusted(
+                    eventId = id,
+                    type = "payment.$code",
+                    merchantRef = text("merchant").orEmpty(),
+                    providerPaymentId = text("payment") ?: return WebhookVerification.Rejected("event has no payment"),
+                    kind = kind,
+                    providerRef = text("ref") ?: return WebhookVerification.Rejected("event has no ref"),
+                    amountCents = (event["amount"] as? JsonPrimitive)?.longOrNull ?: return WebhookVerification.Rejected("event has no amount"),
+                    currency = text("currency") ?: "USD",
+                ),
+            )
+        }
         val status = text("status")?.let { s -> ProviderPaymentStatus.entries.firstOrNull { it.name.equals(s, ignoreCase = true) } }
             ?: return WebhookVerification.Verified(PaymentEvent.Other(id, "unknown"))
         return WebhookVerification.Verified(
@@ -71,6 +86,27 @@ class SimulatedPaymentProvider(
             put("amount", amountCents)
             put("currency", "USD")
             failureCode?.let { put("failureCode", it) }
+        }.toString().toByteArray()
+        return payload to WebhookSignature.header(payload, webhookSecret, clock)
+    }
+
+    /** A signed refund or dispute event for a payment: (payload, signature header value). */
+    fun adjustment(
+        merchantRef: String,
+        providerPaymentId: String,
+        kind: AdjustmentKind,
+        providerRef: String,
+        amountCents: Long,
+        eventId: String = "sim_evt_${UUID.randomUUID()}",
+    ): Pair<ByteArray, String> {
+        val payload = buildJsonObject {
+            put("id", eventId)
+            put("merchant", merchantRef)
+            put("payment", providerPaymentId)
+            put("adjustment", kind.code)
+            put("ref", providerRef)
+            put("amount", amountCents)
+            put("currency", "USD")
         }.toString().toByteArray()
         return payload to WebhookSignature.header(payload, webhookSecret, clock)
     }

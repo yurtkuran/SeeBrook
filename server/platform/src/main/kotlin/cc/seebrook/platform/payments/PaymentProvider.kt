@@ -11,6 +11,29 @@ enum class PaymentMethod(val code: String) {
     }
 }
 
+/** What happened to a received payment's money (ED-45). */
+enum class AdjustmentKind(val code: String) {
+    /** Money returned to the owner. */
+    REFUND("refund"),
+
+    /** A refund that did not go through: the money is back with the HOA. */
+    REFUND_FAILED("refund_failed"),
+
+    /** A dispute or ACH return took the money back from the HOA. */
+    DISPUTE_WITHDRAWN("dispute_withdrawn"),
+
+    /** A dispute was decided for the HOA: the money is back. */
+    DISPUTE_REINSTATED("dispute_reinstated"),
+    ;
+
+    /** True when this kind returns money to the HOA, undoing an earlier refund or withdrawal. */
+    val restores: Boolean get() = this == REFUND_FAILED || this == DISPUTE_REINSTATED
+
+    companion object {
+        fun fromCode(code: String): AdjustmentKind? = entries.firstOrNull { it.code == code }
+    }
+}
+
 /** A provider payment's state, in Seebrook's terms. Every adapter maps its provider's states onto these. */
 enum class ProviderPaymentStatus {
     /** Created; the owner has not finished paying (or must try another method). */
@@ -70,6 +93,22 @@ sealed interface PaymentEvent {
         val seebrookPaymentId: String?,
         /** A short provider code (e.g. `card_declined`), never a message with personal data. */
         val failureCode: String?,
+    ) : PaymentEvent
+
+    /**
+     * Money moved after a payment was received (GA-19): a refund to the owner or its failure, or a
+     * dispute (ACH returns included) taking the funds back or reinstating them. [providerRef]
+     * identifies the refund or dispute; [amountCents] is the money that moved, always positive.
+     */
+    data class Adjusted(
+        override val eventId: String,
+        override val type: String,
+        val merchantRef: String,
+        val providerPaymentId: String,
+        val kind: AdjustmentKind,
+        val providerRef: String,
+        val amountCents: Long,
+        val currency: String,
     ) : PaymentEvent
 
     /** Genuine, but of a kind Seebrook does not act on (yet). */

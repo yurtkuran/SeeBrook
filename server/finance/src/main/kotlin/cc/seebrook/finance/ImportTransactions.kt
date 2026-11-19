@@ -87,7 +87,7 @@ data class TransactionRow(
  */
 object TransactionCsv {
     val COLUMNS = listOf("transaction_id", "account", "date", "type", "description", "amount", "due_date", "payment_ref")
-    private val PAYMENT_REF = Regex("^PAY-[0-9A-Z]{8}$")
+    private val PAYMENT_REF = Regex("^PAY-[0-9A-Z]{8}(-[RD][0-9]{1,3}[FW]?)?$")
 
     sealed interface Parsed {
         data class Valid(val rows: List<TransactionRow>) : Parsed
@@ -145,8 +145,11 @@ object TransactionCsv {
         val paymentRef = row["payment_ref"]?.uppercase()
         if (paymentRef != null) {
             if (!PAYMENT_REF.matches(paymentRef)) errors += RowError(row.line, "payment_ref", "'${paymentRef.take(20)}' is not a Seebrook payment reference (PAY-XXXXXXXX)")
-            if (type != null && type != TransactionType.PAYMENT) errors += RowError(row.line, "type", "an online payment (payment_ref) must be a payment")
-            if (amount != null && amount >= 0) errors += RowError(row.line, "amount", "an online payment (payment_ref) must be negative")
+            // A payment reduces what is owed; its refunds and returns (PAY-…-R1, -D1) increase it again.
+            if (amount == 0L) errors += RowError(row.line, "amount", "an online payment row (payment_ref) cannot be 0")
+            if (type != null && amount != null && amount != 0L && type != (if (amount < 0) TransactionType.PAYMENT else TransactionType.ADJUSTMENT)) {
+                errors += RowError(row.line, "type", "an online payment row (payment_ref) must be a payment when negative, an adjustment when positive")
+            }
         }
 
         if (errors.size != before) return null
@@ -287,12 +290,12 @@ class ImportTransactions(private val db: Database) {
                 val payment = payments[ref]
                 when {
                     payment == null -> conflicts += "Line ${fileRow.line}: no online payment $ref in this HOA"
-                    payment.status != PaymentStatus.SUCCEEDED ->
-                        conflicts += "Line ${fileRow.line}: online payment $ref has not been received (${payment.status.code})"
+                    !payment.received ->
+                        conflicts += "Line ${fileRow.line}: online payment $ref has not been received (${payment.status})"
                     payment.accountId != account.id ->
                         conflicts += "Line ${fileRow.line}: online payment $ref was made for another unit"
-                    payment.duesCents != -fileRow.values.amountCents ->
-                        conflicts += "Line ${fileRow.line}: online payment $ref was ${Money.format(payment.duesCents)}, not ${Money.format(-fileRow.values.amountCents)}"
+                    payment.ledgerCents != fileRow.values.amountCents ->
+                        conflicts += "Line ${fileRow.line}: online payment $ref was ${Money.format(-payment.ledgerCents)}, not ${Money.format(-fileRow.values.amountCents)}"
                     current != null ->
                         conflicts += "Line ${fileRow.line}: transaction '${fileRow.externalId}' was already imported as a separate transaction; " +
                             "the online payment would count twice"

@@ -3,7 +3,10 @@ package cc.seebrook.app
 import cc.seebrook.document.DocumentVersionJob
 import cc.seebrook.document.ProcessDocumentVersion
 import cc.seebrook.identity.DeliverInvitation
+import cc.seebrook.finance.PaymentEmailJob
+import cc.seebrook.finance.SendPaymentEmail
 import cc.seebrook.identity.InvitationEmailJob
+import cc.seebrook.identity.UserContacts
 import cc.seebrook.platform.config.AppConfig
 import cc.seebrook.platform.config.EmailConfig
 import cc.seebrook.platform.db.Database
@@ -50,7 +53,11 @@ object BackgroundJobs {
         scanner: MalwareScanner? = scanner(config),
     ): JobRunner {
         val handlers = buildMap<String, JobHandler> {
-            if (email != null) put(InvitationEmailJob.KIND, DeliverInvitation(db, email, config.inviteLinkBase))
+            if (email != null) {
+                put(InvitationEmailJob.KIND, DeliverInvitation(db, email, config.inviteLinkBase))
+                val contacts = UserContacts(db)
+                put(PaymentEmailJob.KIND, SendPaymentEmail(db, email) { contacts.find(it) })
+            }
             if (storage != null && scanner != null) {
                 put(DocumentVersionJob.KIND, ProcessDocumentVersion(db, storage, scanner, config.documentMaxBytes))
             }

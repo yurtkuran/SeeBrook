@@ -122,7 +122,7 @@ class PaymentExportTest {
         val range = listOf("--from", today.minusDays(1).toString(), "--to", today.plusDays(1).toString())
         PaymentCommands(db, providers).export(who + range + listOf("--out", file.toString(), "--first-id", "2026-00100")).let {
             it shouldContain "Exported 2 received payment(s)"
-            it shouldContain "Dues total: $450.00; fees paid by owners: $5.00"
+            it shouldContain "Net to units: $450.00; fees paid by owners: $5.00"
         }
         val lines = Files.readAllLines(file)
         lines[0] shouldBe "transactionId,ID,Posted Date,Transaction Date,Transaction Type,Account,Check/Serial #,Amount,Posted Balance," +

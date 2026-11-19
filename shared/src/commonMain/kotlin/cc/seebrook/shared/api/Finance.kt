@@ -23,6 +23,11 @@ data class AccountSummaryResponse(
     val updatedAt: String? = null,
     /** Online payments submitted but not settled yet; the balance changes only once they settle. */
     val pendingPaymentsCents: Long,
+    /**
+     * `available`, `unavailable` (paused by the HOA or during a payment provider outage: show
+     * history, disable paying) or `not_offered`.
+     */
+    val onlinePayments: String,
 )
 
 /** `type` is one of assessment, late_fee, adjustment, waiver, payment. */

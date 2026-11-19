@@ -104,7 +104,7 @@ class StripePaymentProviderTest {
     }
 
     @Test
-    fun `payment status maps Stripe's states`() {
+    fun `payment lookup maps Stripe's states and reports the amount`() {
         val states = mapOf(
             """"status":"processing"""" to ProviderPaymentStatus.PROCESSING,
             """"status":"succeeded"""" to ProviderPaymentStatus.SUCCEEDED,
@@ -114,11 +114,26 @@ class StripePaymentProviderTest {
             """"status":"requires_payment_method","last_payment_error":{"code":"card_declined"}""" to ProviderPaymentStatus.FAILED,
         )
         states.forEach { (json, expected) ->
-            reply = { 200 to """{"id":"pi_123",$json}""" }
-            stripe.paymentStatus("acct_hoa1", "pi_123") shouldBe expected
+            reply = { 200 to """{"id":"pi_123","amount":15500,"currency":"usd",$json}""" }
+            stripe.lookupPayment("acct_hoa1", "pi_123").status shouldBe expected
         }
+        stripe.lookupPayment("acct_hoa1", "pi_123") shouldBe
+            ProviderPaymentSnapshot("pi_123", ProviderPaymentStatus.FAILED, 15_500, "USD", "card_declined")
         calls.last().method shouldBe "GET"
         calls.last().path shouldBe "/v1/payment_intents/pi_123"
+        calls.last().headers["Stripe-Account"] shouldBe "acct_hoa1"
+
+        reply = { 200 to """{"id":"pi_123","status":"succeeded"}""" }
+        shouldThrow<PaymentProviderException> { stripe.lookupPayment("acct_hoa1", "pi_123") } // no amount: never guessed
+    }
+
+    @Test
+    fun `availability check reads the connected account's balance`() {
+        reply = { 200 to """{"object":"balance"}""" }
+        stripe.checkAvailable("acct_hoa1")
+        calls.last().path shouldBe "/v1/balance"
+        reply = { 503 to "{}" }
+        shouldThrow<PaymentProviderException> { stripe.checkAvailable("acct_hoa1") }
     }
 
     private fun event(type: String, intent: String = """{"id":"pi_123","amount":35500,"currency":"usd","metadata":{"seebrook_payment_id":"p-1"}}""", live: Boolean = false) =

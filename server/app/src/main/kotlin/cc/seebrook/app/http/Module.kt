@@ -83,7 +83,7 @@ fun Application.seebrookModule(
         val accounts = AccountActions(db)
         accountRoutes(accounts)
         documentRoutes(accounts, DocumentActions(db, storage))
-        financeRoutes(accounts, FinanceActions(db, clock))
+        financeRoutes(accounts, FinanceActions(db, clock, payments))
         paymentRoutes(accounts, PaymentActions(db, payments))
         get("/health/live") {
             call.respond(HealthResponse(HealthStatus.UP))

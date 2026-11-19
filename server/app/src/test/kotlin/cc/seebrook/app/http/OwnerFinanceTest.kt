@@ -150,6 +150,7 @@ class OwnerFinanceTest {
             asOfDate = "2026-07-10",
             updatedAt = summary.updatedAt,
             pendingPaymentsCents = 0,
+            onlinePayments = "not_offered",
         )
         Instant.parse(summary.updatedAt)
 

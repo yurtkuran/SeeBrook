@@ -6,6 +6,7 @@ import cc.seebrook.db.generated.finance.Tables.LEDGER_ENTRY
 import cc.seebrook.db.generated.finance.Tables.TRANSACTION
 import cc.seebrook.platform.auth.UserActor
 import cc.seebrook.platform.db.Database
+import cc.seebrook.platform.payments.PaymentProviders
 import cc.seebrook.property.OwnerPeriod
 import cc.seebrook.property.Ownerships
 import cc.seebrook.tenant.Hoas
@@ -54,6 +55,8 @@ data class AccountSummary(
     val updatedAt: Instant?,
     /** Online payments submitted but not settled yet; not part of the balance until they settle. */
     val pendingPaymentsCents: Long = 0,
+    /** Whether the owner can pay online right now (ED-46); history stays readable either way. */
+    val onlinePayments: OnlinePayments = OnlinePayments.NOT_OFFERED,
 )
 
 /**
@@ -112,7 +115,11 @@ internal object OwnerFinance {
 }
 
 /** The selected property's balance with what is due and overdue (REQUIREMENTS: per-property summary). */
-class GetAccountSummary(private val db: Database, private val clock: Clock = Clock.systemUTC()) {
+class GetAccountSummary(
+    private val db: Database,
+    private val clock: Clock = Clock.systemUTC(),
+    private val providers: PaymentProviders = PaymentProviders.NONE,
+) {
     sealed interface Result {
         data class Summary(val summary: AccountSummary) : Result
         data object NotFound : Result
@@ -132,7 +139,10 @@ class GetAccountSummary(private val db: Database, private val clock: Clock = Clo
             .where(IMPORT_BATCH.HOA_ID.eq(context.period.hoaId)).fetchOne()?.value1()?.toInstant()
         val pending = PaymentStore.pendingCents(tx, context.period.hoaId, context.accountId)
         Result.Summary(
-            DueStatus.of(balance, rows.map { Charge(it.amountCents, it.dueDate ?: it.date) }, today, updatedAt).copy(pendingPaymentsCents = pending),
+            DueStatus.of(balance, rows.map { Charge(it.amountCents, it.dueDate ?: it.date) }, today, updatedAt).copy(
+                pendingPaymentsCents = pending,
+                onlinePayments = PaymentStore.availability(tx, context.period.hoaId, providers),
+            ),
         )
     }
 }

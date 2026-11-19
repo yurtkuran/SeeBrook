@@ -41,5 +41,26 @@ services:
     ports:
       - "127.0.0.1:3310:3310"
 
+  # Database browser for inspecting local tables and data: http://localhost:3001
+  # Preconnected to the local database above; never point it at a real database.
+  dbgate:
+    image: dbgate/dbgate:7.3.4-alpine
+    depends_on:
+      - postgres
+    environment:
+      CONNECTIONS: local
+      LABEL_local: Seebrook (local)
+      ENGINE_local: postgres@dbgate-plugin-postgres
+      SERVER_local: postgres
+      PORT_local: 5432
+      USER_local: seebrook
+      PASSWORD_local: seebrook-dev
+      DATABASE_local: seebrook
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - dbgate:/root/.dbgate
+
 volumes:
   pgdata:
+  dbgate:

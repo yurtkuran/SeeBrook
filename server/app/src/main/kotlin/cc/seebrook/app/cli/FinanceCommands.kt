@@ -93,6 +93,7 @@ class FinanceCommands(private val db: Database) {
             appendLine("  Unchanged: ${plan.unchanged}")
             if (plan.voids > 0) appendLine("  Voids (amount set to 0): ${plan.voids}")
             if (plan.zeroSkipped > 0) appendLine("  New rows with amount 0, skipped: ${plan.zeroSkipped}")
+            if (plan.onlinePaymentsMatched > 0) appendLine("  Online payments matched (already in Seebrook, not posted again): ${plan.onlinePaymentsMatched}")
             append("  Net change to balances: ${Money.format(plan.netChangeCents)} across ${plan.accountsAffected} account(s)")
         }
         return when (result) {
@@ -209,6 +210,7 @@ object RegisterCommands {
             if (s.zeroRows > 0) appendLine("  Rows with amount 0 or blank (void if already imported): ${s.zeroRows}")
             if (s.outsideYear.isNotEmpty()) appendLine("  Unit rows dated outside $year, left out as the sheet does: ${s.outsideYear.joinToString()}")
             appendLine("  Other register rows (not a unit's): ${s.otherRows}")
+            if (s.onlinePayments > 0) appendLine("  Online payments (Seebrook Ref), checked at import: ${s.onlinePayments}")
             appendLine("Wrote ${FILES.joinToString { out.resolve(it).toString() }}")
             append("Next: import-accounts (first time only), import-transactions, then reconcile-balances with expected-balances.csv.")
         }

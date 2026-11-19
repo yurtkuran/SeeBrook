@@ -151,6 +151,18 @@ internal object PaymentStore {
                 )
             }
 
+    data class Recorded(val accountId: UUID, val status: PaymentStatus, val duesCents: Long)
+
+    /** Payments of one HOA by reference, for checking the HOA's records of them (ED-44). */
+    fun byReferences(tx: DSLContext, hoaId: UUID, references: Collection<String>): Map<String, Recorded> =
+        if (references.isEmpty()) {
+            emptyMap()
+        } else {
+            tx.select(PAYMENT.REFERENCE, PAYMENT.ACCOUNT_ID, PAYMENT.STATUS, PAYMENT.DUES_CENTS).from(PAYMENT)
+                .where(PAYMENT.HOA_ID.eq(hoaId)).and(PAYMENT.REFERENCE.`in`(references))
+                .fetch().associate { it.value1() to Recorded(requireNotNull(it.value2()), PaymentStatus.fromCode(it.value3()), it.value4()) }
+        }
+
     /** Dues of payments submitted but not settled yet: shown apart from the confirmed balance. */
     fun pendingCents(tx: DSLContext, hoaId: UUID, accountId: UUID): Long =
         tx.select(DSL.coalesce(DSL.sum(PAYMENT.DUES_CENTS), DSL.inline(java.math.BigDecimal.ZERO))).from(PAYMENT)

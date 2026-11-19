@@ -87,8 +87,37 @@ $APP reconcile-balances "${O[@]}" --file $OUT/expected-balances.csv      # shoul
 - `convert-register` writes nothing unless every unit's total matches the sheet's `<year> Balance`.
 - Importing the same file again reports "already imported" and changes nothing.
 - An amount changed in the register becomes a correction. An amount set to 0 voids the transaction. History is never edited.
-- Every register row for a unit needs a `transactionId` (format `2026-00001`).
+- Every register row for a unit needs a `transactionId` (format `2026-00001`), online payments included.
 - Check a single unit with `$APP account-statement "${O[@]}" --unit "Unit 05"` and all units with `$APP list-balances "${O[@]}"`.
+
+## Payments
+
+- Locally the provider is **simulated**: no money moves. In production it is Stripe Connect, so each HOA's own Stripe account receives the money.
+- Fee per method: `off` (not accepted), `0` (HOA absorbs), `3%`, `1.50` or `2.9%+0.30`. Only the dues ever reach the owner's balance.
+- Statuses: `created` → `processing` (bank payments take days) → `succeeded`, or `failed` / `canceled`. Only `succeeded` changes the balance; `processing` shows as pending.
+
+```bash
+$APP configure-payments "${O[@]}" --provider simulated --merchant sim_channel_harbor \
+  --card-fee 2.9%+0.30 --ach-fee 0                    # dry run; add --commit --reason "..."; --suspended true pauses payments
+$APP payment-settings "${O[@]}"
+$APP list-payments "${O[@]}" [--unit "Unit 05"]
+$APP dev-payment-event --hoa channel-harbor --payment PAY-XXXXXXXX --status succeeded   # local only: play the provider
+```
+
+### Online payments into the register (monthly, before converting)
+
+1. Export the month's received payments (outside the repository):
+
+   ```bash
+   $APP export-payments "${O[@]}" --from 2026-11-01 --to 2026-11-30 --out $OUT/payments.csv [--first-id 2026-00391]
+   ```
+
+2. Open the CSV, copy the data rows (not the header), click the first cell of the next empty register row, and use **Paste Special → Values + Skip blanks**. The formula columns stay intact.
+3. Fill in the bank-side columns as usual (Posted Date, Account). Keep `Seebrook Ref`.
+4. Run the monthly import as usual. The import reports "Online payments matched" and does not post them again. A wrong unit or amount on a `PAY-…` row rejects the file and says which row.
+
+- The register sheet needs a `Seebrook Ref` column, added once as the last column.
+- Why Skip blanks: the register's Posted Balance (both), Balance, Payee, Category, Topic, Year and Month columns are formulas (Category is looked up from the `ID` code; `101` is HOA Dues). The export leaves those columns blank, and pasting with Paste Special → Skip blanks keeps your formulas.
 
 ## Git workflow
 

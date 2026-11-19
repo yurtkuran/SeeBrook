@@ -47,7 +47,7 @@ class RegisterWorkbookTest {
     fun `the register converts to canonical files that match the sheet's balances`() {
         val output = convert().shouldBeInstanceOf<RegisterWorkbook.Result.Converted>().output
         val transactions = output.transactionsCsv.decodeToString()
-        transactions.lines().first() shouldBe "transaction_id,account,date,type,description,amount,due_date"
+        transactions.lines().first() shouldBe "transaction_id,account,date,type,description,amount,due_date,payment_ref"
         listOf(
             "OPEN-2026-A1,A1,2025-12-31,adjustment,Balance carried forward from 2025,-100.00,",
             "OPEN-2026-B1,B1,2025-12-31,adjustment,Balance carried forward from 2025,75.50,",

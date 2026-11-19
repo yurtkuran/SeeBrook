@@ -101,6 +101,10 @@ Payments (ED-43):
                              3%, 1.50 or 2.9%+0.30. Dry run by default.
   payment-settings --operator <email> --hoa <slug>
   list-payments --operator <email> --hoa <slug> [--unit <label>]
+  export-payments --operator <email> --hoa <slug> --from <date> --to <date> --out <file.csv>
+                  [--first-id 2026-00391] [--category-id 101]
+                             Received online payments as rows for the register workbook (its columns plus Seebrook
+                             Ref), to paste with Skip blanks. Keep the file outside the repository.
   dev-payment-event --hoa <slug> --payment <PAY-…> --status <processing|succeeded|failed|canceled> [--failure <code>]
                              Development only: send the simulated provider's webhook to the local server.
 
@@ -119,7 +123,7 @@ private val FINANCE_COMMANDS = setOf(
     "import-accounts", "import-transactions", "list-balances", "account-statement", "reconcile-balances",
 )
 
-private val PAYMENT_COMMANDS = setOf("configure-payments", "payment-settings", "list-payments", "dev-payment-event")
+private val PAYMENT_COMMANDS = setOf("configure-payments", "payment-settings", "list-payments", "export-payments", "dev-payment-event")
 
 private fun usage(): Nothing {
     System.err.println(USAGE)
@@ -206,6 +210,7 @@ fun main(args: Array<String>) {
                         "configure-payments" -> payments.configure(operands)
                         "payment-settings" -> payments.settings(operands)
                         "list-payments" -> payments.list(operands)
+                        "export-payments" -> payments.export(operands)
                         else -> DevPayments.devPaymentEvent(
                             db, config.environment,
                             (config.payments as? PaymentsConfig.Simulated)?.webhookSecret

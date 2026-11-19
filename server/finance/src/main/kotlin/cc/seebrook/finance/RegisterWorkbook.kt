@@ -33,7 +33,7 @@ import kotlin.math.floor
  *    above that, the dues due for each month so far (0 for months not yet due). Balances there
  *    are positive for a credit, the opposite of Seebrook's sign.
  *  - **`<year> …` register:** a header row with `transactionId`, `Transaction Date`, `Amount`,
- *    `Payee ID`, `Category` and optionally `Transaction Type`. Rows whose payee is a unit and whose
+ *    `Payee ID`, `Category` and optionally `Transaction Type` and `Seebrook Ref`. Rows whose payee is a unit and whose
  *    date is in the year are the unit's money (positive: received from the owner); others are
  *    left out, exactly as the income sheet's own formulas do.
  *
@@ -43,6 +43,9 @@ import kotlin.math.floor
  *  - one transaction per register row, keyed by its `transactionId`: money received is a payment
  *    (a `Late Fee`-type credit is a waiver), money charged is a late fee for `Late Fee` category
  *    rows and an adjustment otherwise; 0 or blank voids it (ED-42);
+ *  - a row with a `PAY-…` in `Seebrook Ref` is the HOA's record of an online payment (ED-44): it
+ *    is passed on with that reference, so the import checks it against the payment instead of
+ *    posting it again;
  *  - the expected balances from `<year> Balance`, and an account mapping (unit = account).
  *
  * Before writing anything it checks, unit by unit, that the converted transactions add up to the
@@ -50,6 +53,10 @@ import kotlin.math.floor
  */
 object RegisterWorkbook {
     const val MAX_BYTES = 20L * 1024 * 1024
+
+    /** The register column holding a Seebrook online payment's reference (ED-44). */
+    const val SEEBROOK_REF = "Seebrook Ref"
+    private val PAYMENT_REF = Regex("^PAY-[0-9A-Z]{8}$")
 
     data class Summary(
         val year: Int,
@@ -67,6 +74,8 @@ object RegisterWorkbook {
         val outsideYear: List<String>,
         /** Register rows whose payee is not a unit: expenses and other income. */
         val otherRows: Int,
+        /** Rows recording online payments (`Seebrook Ref`), checked by the import rather than posted. */
+        val onlinePayments: Int = 0,
     )
 
     class Output(val transactionsCsv: ByteArray, val expectedBalancesCsv: ByteArray, val accountsCsv: ByteArray, val summary: Summary)
@@ -126,19 +135,23 @@ object RegisterWorkbook {
                 duesMonths = income.dues.keys.toList(),
                 duesCharges = income.dues.size * units.size,
                 openingBalances = units.count { income.previous.getValue(it) != 0L },
-                payments = register.rows.count { it.values.type == TransactionType.PAYMENT && it.values.amountCents != 0L },
+                payments = register.rows.count { it.values.type == TransactionType.PAYMENT && it.values.amountCents != 0L && it.paymentRef == null },
                 lateFees = register.rows.count { it.values.type == TransactionType.LATE_FEE && it.values.amountCents != 0L },
                 waivers = register.rows.count { it.values.type == TransactionType.WAIVER && it.values.amountCents != 0L },
                 adjustments = register.rows.count { it.values.type == TransactionType.ADJUSTMENT && it.values.amountCents != 0L },
                 zeroRows = register.rows.count { it.values.amountCents == 0L },
                 outsideYear = register.outsideYear,
                 otherRows = register.otherRows,
+                onlinePayments = register.rows.count { it.paymentRef != null },
             )
             return Result.Converted(
                 Output(
                     transactionsCsv = csv(TransactionCsv.COLUMNS, sorted.map { r ->
                         val v = r.values
-                        listOf(r.externalId, r.account, v.date.toString(), v.type.code, v.description, plain(v.amountCents), v.dueDate?.toString().orEmpty())
+                        listOf(
+                            r.externalId, r.account, v.date.toString(), v.type.code, v.description, plain(v.amountCents),
+                            v.dueDate?.toString().orEmpty(), r.paymentRef.orEmpty(),
+                        )
                     }),
                     expectedBalancesCsv = csv(listOf("account", "balance"), units.sorted().map { listOf(it, plain(-income.current.getValue(it))) }),
                     accountsCsv = csv(listOf("unit_label", "account"), units.sorted().map { listOf(it, it) }),
@@ -253,6 +266,8 @@ object RegisterWorkbook {
             val payeeCol = column("Payee ID")
             val categoryCol = column("Category")
             val typeCol = columns["transaction type"]
+            val refCol = columns[SEEBROOK_REF.lowercase()]
+            val refs = mutableMapOf<String, Int>()
             if (idCol == null || dateCol == null || amountCol == null || payeeCol == null || categoryCol == null) return null
 
             val rows = mutableListOf<TransactionRow>()
@@ -290,6 +305,20 @@ object RegisterWorkbook {
                 val kind = typeCol?.let { row.getCell(it).value().text() }.orEmpty()
                 val cents = -amount // the register's positive (money in) is Seebrook's negative (less owed)
                 val lateFee = category.equals("Late Fee", ignoreCase = true)
+                val ref = refCol?.let { row.getCell(it).value().text() }?.uppercase()
+                if (ref != null) {
+                    // An online payment Seebrook already holds: passed on for the import to check (ED-44).
+                    when {
+                        !PAYMENT_REF.matches(ref) -> errors += "$where: $SEEBROOK_REF '${ref.take(20)}' is not a Seebrook payment reference (PAY-XXXXXXXX)"
+                        cents >= 0 -> errors += "$where: an online payment ($ref) must be money received"
+                        ref in refs -> errors += "$where: $ref also appears on row ${refs.getValue(ref)}"
+                        else -> {
+                            refs[ref] = line
+                            rows += row(id, payee, TransactionType.PAYMENT, date, null, "Online payment", cents).copy(paymentRef = ref)
+                        }
+                    }
+                    continue
+                }
                 val (type, description) = when {
                     cents < 0 && kind.equals("Late Fee", ignoreCase = true) -> TransactionType.WAIVER to "Late fee waived"
                     cents < 0 -> TransactionType.PAYMENT to (if (category.isEmpty()) "Payment" else "Payment: $category")

@@ -21,6 +21,8 @@ data class AccountSummaryResponse(
     val asOfDate: String,
     /** When the HOA's finance data was last imported. */
     val updatedAt: String? = null,
+    /** Online payments submitted but not settled yet; the balance changes only once they settle. */
+    val pendingPaymentsCents: Long,
 )
 
 /** `type` is one of assessment, late_fee, adjustment, waiver, payment. */

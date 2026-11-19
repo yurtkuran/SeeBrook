@@ -52,6 +52,8 @@ data class AccountSummary(
     val asOfDate: LocalDate,
     /** When the HOA's finance data was last imported; null before the first import. */
     val updatedAt: Instant?,
+    /** Online payments submitted but not settled yet; not part of the balance until they settle. */
+    val pendingPaymentsCents: Long = 0,
 )
 
 /**
@@ -80,8 +82,15 @@ internal object OwnerFinance {
 
     data class Row(val id: UUID, val reference: String, val type: TransactionType, val date: LocalDate, val dueDate: LocalDate?, val description: String, val amountCents: Long)
 
-    /** The account's transactions at their current values, voided ones (amount 0) left out, oldest first. */
+    /**
+     * The account's transactions at their current values, voided ones (amount 0) left out, and its
+     * settled online payments (ED-43), oldest first.
+     */
     fun transactions(tx: DSLContext, context: Context): List<Row> =
+        (imported(tx, context) + PaymentStore.settledLines(tx, context.period.hoaId, context.accountId, context.zone))
+            .sortedWith(compareBy({ it.date }, { it.reference }))
+
+    private fun imported(tx: DSLContext, context: Context): List<Row> =
         tx.selectFrom(TRANSACTION)
             .where(TRANSACTION.HOA_ID.eq(context.period.hoaId)).and(TRANSACTION.ACCOUNT_ID.eq(context.accountId))
             .and(TRANSACTION.AMOUNT_CENTS.ne(0L))
@@ -121,7 +130,10 @@ class GetAccountSummary(private val db: Database, private val clock: Clock = Clo
         val rows = OwnerFinance.transactions(tx, context)
         val updatedAt = tx.select(DSL.max(IMPORT_BATCH.IMPORTED_AT)).from(IMPORT_BATCH)
             .where(IMPORT_BATCH.HOA_ID.eq(context.period.hoaId)).fetchOne()?.value1()?.toInstant()
-        Result.Summary(DueStatus.of(balance, rows.map { Charge(it.amountCents, it.dueDate ?: it.date) }, today, updatedAt))
+        val pending = PaymentStore.pendingCents(tx, context.period.hoaId, context.accountId)
+        Result.Summary(
+            DueStatus.of(balance, rows.map { Charge(it.amountCents, it.dueDate ?: it.date) }, today, updatedAt).copy(pendingPaymentsCents = pending),
+        )
     }
 }
 

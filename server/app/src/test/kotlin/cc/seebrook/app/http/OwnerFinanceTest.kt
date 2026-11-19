@@ -149,6 +149,7 @@ class OwnerFinanceTest {
             nextDueDate = "2026-10-01",
             asOfDate = "2026-07-10",
             updatedAt = summary.updatedAt,
+            pendingPaymentsCents = 0,
         )
         Instant.parse(summary.updatedAt)
 

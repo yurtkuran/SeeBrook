@@ -48,6 +48,7 @@ fun Route.financeRoutes(accounts: AccountActions, actions: FinanceActions) {
                                 nextDueDate = nextDueDate?.toString(),
                                 asOfDate = asOfDate.toString(),
                                 updatedAt = updatedAt?.let(DateTimeFormatter.ISO_INSTANT::format),
+                                pendingPaymentsCents = pendingPaymentsCents,
                             ),
                         )
                     }

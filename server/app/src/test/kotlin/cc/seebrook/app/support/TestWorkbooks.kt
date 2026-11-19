@@ -22,6 +22,8 @@ object TestWorkbooks {
         val amount: Double?,
         val category: String = "HOA Dues",
         val type: String = "Deposit",
+        /** `Seebrook Ref`: the row records this online payment (ED-44). */
+        val seebrookRef: String? = null,
     )
 
     data class Spec(
@@ -92,13 +94,14 @@ object TestWorkbooks {
             listOf(
                 "transactionId", "ID", "Posted Date", "Transaction Date", "Transaction Type", "Account", "Check/Ref #", "Amount",
                 "Bank Balance", "Running Balance", "Balance", "Payee ID", "Payee", "Budget Item", "Category", "Topic", "Year", "Month", "Comment",
+                "Seebrook Ref",
             ).forEachIndexed { col, label -> set(col, label) }
         }
         spec.register.forEachIndexed { i, e ->
             register.row(4 + i).apply {
                 set(0, e.id); set(1, 101); set(2, e.date); set(3, e.date); set(4, e.type); set(7, e.amount)
                 set(11, e.payee); set(12, "Owner"); set(14, e.category); set(15, "Income"); set(16, e.date.year)
-                set(18, "private note")
+                set(18, "private note"); set(19, e.seebrookRef)
             }
         }
         ByteArrayOutputStream().also { wb.write(it) }.toByteArray()

@@ -1,6 +1,8 @@
 package cc.seebrook.app.cli
 
 import cc.seebrook.finance.ConfigurePayments
+import cc.seebrook.finance.ExportPayments
+import cc.seebrook.finance.RegisterPaymentRows
 import cc.seebrook.finance.FeeRule
 import cc.seebrook.finance.GetPaymentSettings
 import cc.seebrook.finance.ListHoaPayments
@@ -15,6 +17,10 @@ import cc.seebrook.platform.payments.PaymentProviders
 import cc.seebrook.property.Properties
 import cc.seebrook.tenant.FindHoa
 import java.math.BigDecimal
+import java.nio.file.Files
+import java.time.LocalDate
+import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.util.UUID
 
 /** Payment admin commands (ED-43): thin adapters over the payment actions. */
@@ -80,6 +86,31 @@ class PaymentCommands(private val db: Database, private val providers: PaymentPr
         }
     }
 
+    /** Received payments as register rows (ED-44). Refuses to overwrite a file. */
+    fun export(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "from", "to", "out", "first-id", "category-id"))
+        fun date(name: String) = o.required(name).let { runCatching { LocalDate.parse(it) }.getOrNull() ?: throw CommandException("--$name '$it' is not a date (YYYY-MM-DD)", 2) }
+        val from = date("from")
+        val to = date("to")
+        val out = Path.of(o.required("out"))
+        if (Files.exists(out)) throw CommandException("$out already exists; choose another file name")
+        if (out.parent != null && !Files.isDirectory(out.parent)) throw CommandException("No folder ${out.parent}")
+        val firstId = o["first-id"]?.also { if (!Regex("^.{0,20}\\d{1,10}$").matches(it)) throw CommandException("--first-id must end in a number, e.g. 2026-00391", 2) }
+        val rows = when (val result = ExportPayments(db)(operator(o.required("operator")), hoaId(o.required("hoa")), from, to)) {
+            is ExportPayments.Result.Exported -> result.rows
+            ExportPayments.Result.InvalidRange -> throw CommandException("--to must be on or after --from, and within a year of it", 2)
+            ExportPayments.Result.Forbidden -> throw CommandException("Operator may not manage finances in this HOA")
+        }
+        Files.write(out, RegisterPaymentRows.csv(rows, o["category-id"] ?: DEFAULT_DUES_CATEGORY_ID, firstId), StandardOpenOption.CREATE_NEW)
+        return buildString {
+            appendLine("Exported ${rows.size} received payment(s) from $from to $to to $out")
+            if (rows.isNotEmpty()) {
+                appendLine("  Dues total: ${Money.format(rows.sumOf { it.duesCents })}; fees paid by owners: ${Money.format(rows.sumOf { it.feeCents })}")
+            }
+            append("Paste the rows into the register with Paste Special > Skip blanks, so its formula columns are kept.")
+        }
+    }
+
     private fun describe(s: PaymentSettings): String = buildString {
         append("${s.provider} merchant ${s.merchantRef}")
         if (s.suspended) append(" (SUSPENDED)")
@@ -90,6 +121,9 @@ class PaymentCommands(private val db: Database, private val providers: PaymentPr
     }
 
     companion object {
+        /** The register's `ID` code for HOA dues (its budget category list). */
+        const val DEFAULT_DUES_CATEGORY_ID = "101"
+
         /**
          * `off` (method not accepted), `0` (accepted; the HOA absorbs the fee), `3%`, `1.50`
          * (dollars) or `2.9%+0.30`.

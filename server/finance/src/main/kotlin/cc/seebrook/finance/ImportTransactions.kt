@@ -68,7 +68,17 @@ data class TransactionValues(
     }
 }
 
-data class TransactionRow(val line: Long, val externalId: String, val account: String, val values: TransactionValues)
+/**
+ * One file row. [paymentRef] marks the HOA's record of an online payment Seebrook already holds
+ * (`PAY-…`, ED-44): it is checked against that payment and never posted again.
+ */
+data class TransactionRow(
+    val line: Long,
+    val externalId: String,
+    val account: String,
+    val values: TransactionValues,
+    val paymentRef: String? = null,
+)
 
 /**
  * Parses and validates a transaction file (ED-41). Columns: `transaction_id, account, date, type,
@@ -76,7 +86,8 @@ data class TransactionRow(val line: Long, val externalId: String, val account: S
  * problem rejects the whole file. An amount of 0 is allowed: it voids a known transaction (ED-42).
  */
 object TransactionCsv {
-    val COLUMNS = listOf("transaction_id", "account", "date", "type", "description", "amount", "due_date")
+    val COLUMNS = listOf("transaction_id", "account", "date", "type", "description", "amount", "due_date", "payment_ref")
+    private val PAYMENT_REF = Regex("^PAY-[0-9A-Z]{8}$")
 
     sealed interface Parsed {
         data class Valid(val rows: List<TransactionRow>) : Parsed
@@ -84,7 +95,7 @@ object TransactionCsv {
     }
 
     fun parse(content: ByteArray): Parsed {
-        val rows = when (val read = FinanceCsv.read(content, COLUMNS, optional = setOf("due_date"))) {
+        val rows = when (val read = FinanceCsv.read(content, COLUMNS, optional = setOf("due_date", "payment_ref"))) {
             is FinanceCsv.Read.Invalid -> return Parsed.Invalid(read.errors)
             is FinanceCsv.Read.Rows -> read.rows
         }
@@ -93,6 +104,9 @@ object TransactionCsv {
         // Over every row, valid or not, so a repeat of a broken row is reported too.
         rows.filter { it["transaction_id"] != null }.groupBy { it["transaction_id"] }.values.filter { it.size > 1 }.forEach { dupes ->
             dupes.drop(1).forEach { errors += RowError(it.line, "transaction_id", "repeats line ${dupes.first().line}") }
+        }
+        rows.filter { it["payment_ref"] != null }.groupBy { it["payment_ref"] }.values.filter { it.size > 1 }.forEach { dupes ->
+            dupes.drop(1).forEach { errors += RowError(it.line, "payment_ref", "repeats line ${dupes.first().line}") }
         }
         return if (errors.isEmpty()) Parsed.Valid(parsed) else Parsed.Invalid(errors.sortedBy { it.line })
     }
@@ -128,11 +142,18 @@ object TransactionCsv {
             errors += RowError(row.line, "amount", "${type.code} needs $expected amount (charges are positive, payments and waivers negative)")
         }
         if (dueDate != null && amount != null && amount < 0) errors += RowError(row.line, "due_date", "is only for charges")
+        val paymentRef = row["payment_ref"]?.uppercase()
+        if (paymentRef != null) {
+            if (!PAYMENT_REF.matches(paymentRef)) errors += RowError(row.line, "payment_ref", "'${paymentRef.take(20)}' is not a Seebrook payment reference (PAY-XXXXXXXX)")
+            if (type != null && type != TransactionType.PAYMENT) errors += RowError(row.line, "type", "an online payment (payment_ref) must be a payment")
+            if (amount != null && amount >= 0) errors += RowError(row.line, "amount", "an online payment (payment_ref) must be negative")
+        }
 
         if (errors.size != before) return null
         return TransactionRow(
             row.line, requireNotNull(id), requireNotNull(account),
             TransactionValues(requireNotNull(type), requireNotNull(date), dueDate, requireNotNull(description), requireNotNull(amount)),
+            paymentRef,
         )
     }
 }
@@ -150,6 +171,9 @@ object TransactionCsv {
  *  - transactions missing from the file are left alone (files may be partial);
  *  - an amount of 0 voids a known transaction: only its amount changes, through a correction with
  *    a reversal; a new ID with 0 has nothing to post and is skipped (ED-42);
+ *  - a row with a `payment_ref` is the HOA's record of an online payment: it must match a
+ *    received payment of the same unit and amount, and is never posted, since the payment already
+ *    credited the ledger (ED-44);
  *  - the same file twice, or any file already applied, changes nothing.
  * Dry run by default; a commit is applied in one transaction under a per-HOA lock.
  */
@@ -165,6 +189,8 @@ class ImportTransactions(private val db: Database) {
         val unchanged: Int,
         /** New transaction IDs with amount 0: nothing to post (ED-42). */
         val zeroSkipped: Int,
+        /** Rows recording online payments Seebrook already credited: checked, never posted (ED-44). */
+        val onlinePaymentsMatched: Int,
         /** The total change to balances across all accounts, in cents. */
         val netChangeCents: Long,
         val accountsAffected: Int,
@@ -251,9 +277,29 @@ class ImportTransactions(private val db: Database) {
             conflicts += "Account '$account' is not mapped to a unit (lines ${unknown.joinToString(",") { it.line.toString() }}); " +
                 "map it with import-accounts first"
         }
+        val payments = PaymentStore.byReferences(tx, hoaId, rows.mapNotNull { it.paymentRef })
+        var matched = 0
         for (fileRow in rows) {
             val account = accounts[fileRow.account] ?: continue
             val current = known[fileRow.externalId]
+            fileRow.paymentRef?.let { ref ->
+                // The HOA's record of an online payment: Seebrook's ledger already holds it (ED-44).
+                val payment = payments[ref]
+                when {
+                    payment == null -> conflicts += "Line ${fileRow.line}: no online payment $ref in this HOA"
+                    payment.status != PaymentStatus.SUCCEEDED ->
+                        conflicts += "Line ${fileRow.line}: online payment $ref has not been received (${payment.status.code})"
+                    payment.accountId != account.id ->
+                        conflicts += "Line ${fileRow.line}: online payment $ref was made for another unit"
+                    payment.duesCents != -fileRow.values.amountCents ->
+                        conflicts += "Line ${fileRow.line}: online payment $ref was ${Money.format(payment.duesCents)}, not ${Money.format(-fileRow.values.amountCents)}"
+                    current != null ->
+                        conflicts += "Line ${fileRow.line}: transaction '${fileRow.externalId}' was already imported as a separate transaction; " +
+                            "the online payment would count twice"
+                    else -> matched++
+                }
+                continue
+            }
             // A void changes only the amount; the transaction keeps its other values (ED-42).
             val row = if (fileRow.values.amountCents == 0L && current != null) {
                 fileRow.copy(values = current.values.copy(amountCents = 0))
@@ -279,7 +325,7 @@ class ImportTransactions(private val db: Database) {
             }
         }
         if (conflicts.isNotEmpty()) return Result.Conflicts(conflicts)
-        return Result.Planned(Plan(rows.size, toCreate, toCorrect, unchanged, zeroSkipped, net, affected.size))
+        return Result.Planned(Plan(rows.size, toCreate, toCorrect, unchanged, zeroSkipped, matched, net, affected.size))
     }
 
     private fun apply(
@@ -299,7 +345,7 @@ class ImportTransactions(private val db: Database) {
                 .set(IMPORT_BATCH.ROW_COUNT, plan.rowCount)
                 .set(IMPORT_BATCH.CREATED_COUNT, plan.toCreate.size)
                 .set(IMPORT_BATCH.CORRECTED_COUNT, plan.toCorrect.size)
-                .set(IMPORT_BATCH.UNCHANGED_COUNT, plan.unchanged + plan.zeroSkipped)
+                .set(IMPORT_BATCH.UNCHANGED_COUNT, plan.unchanged + plan.zeroSkipped + plan.onlinePaymentsMatched)
                 .set(IMPORT_BATCH.IMPORTED_BY, actor.userId)
                 .set(IMPORT_BATCH.REASON, reason)
                 .returning(IMPORT_BATCH.ID).fetchSingle().id,
@@ -381,6 +427,7 @@ class ImportTransactions(private val db: Database) {
                     put("unchanged", plan.unchanged)
                     put("voided", plan.voids)
                     put("zeroSkipped", plan.zeroSkipped)
+                    put("onlinePaymentsMatched", plan.onlinePaymentsMatched)
                 },
             ),
         )

@@ -205,6 +205,47 @@ class FinanceImportTest {
     }
 
     @Test
+    fun `amount 0 voids a known transaction with a reversal, and a new zero row is skipped`() {
+        mapAccounts()
+        import(csv("A-1,CH-1001,2026-01-01,assessment,Q1 dues,450.00,2026-01-01", "F-1,CH-1001,2026-02-01,late_fee,Late fee,25.00,"))
+        balance("Unit 01") shouldBe 47500
+
+        // The spreadsheet keeps the row and sets 0; other columns may differ and are ignored.
+        val plan = transactions(root, hoa, "void.csv", csv("F-1,CH-1001,2026-02-01,late_fee,Waived by board,0,", "N-1,CH-1001,2026-03-01,payment,Never,0,"), commit = false)
+            .shouldBeInstanceOf<ImportTransactions.Result.Planned>().plan
+        plan.voids shouldBe 1
+        plan.zeroSkipped shouldBe 1
+        plan.toCreate.shouldBeEmpty()
+        plan.netChangeCents shouldBe -2500
+        import(csv("F-1,CH-1001,2026-02-01,late_fee,Waived by board,0,", "N-1,CH-1001,2026-03-01,payment,Never,0,"))
+            .shouldBeInstanceOf<ImportTransactions.Result.Imported>()
+
+        balance("Unit 01") shouldBe 45000
+        val voided = db.dsl.selectFrom(TRANSACTION).where(TRANSACTION.EXTERNAL_ID.eq("F-1")).fetchSingle()
+        voided.amountCents shouldBe 0
+        voided.description shouldBe "Late fee"
+        voided.version shouldBe 2
+        db.dsl.fetchExists(TRANSACTION, TRANSACTION.EXTERNAL_ID.eq("N-1")) shouldBe false
+        db.dsl.select(LEDGER_ENTRY.KIND, LEDGER_ENTRY.AMOUNT_CENTS).from(LEDGER_ENTRY)
+            .where(LEDGER_ENTRY.TRANSACTION_ID.eq(voided.id)).orderBy(LEDGER_ENTRY.ID)
+            .fetch { it.value1() to it.value2() } shouldContainExactly listOf("original" to 2500L, "reversal" to -2500L)
+        (AccountStatement(db)(root, hoa, "Unit 01") as AccountStatement.Result.Statement).lines.map { it.amountCents } shouldContainExactly listOf(45000L, 0L)
+
+        // Voiding again changes nothing; restoring it posts only the new amount.
+        transactions(root, hoa, "again.csv", csv("F-1,CH-1001,2026-02-01,late_fee,x,0,"), commit = true, reason = "again")
+            .shouldBeInstanceOf<ImportTransactions.Result.NothingToImport>()
+        import(csv("F-1,CH-1001,2026-02-01,late_fee,Late fee,30.00,")).shouldBeInstanceOf<ImportTransactions.Result.Imported>()
+            .plan.toCorrect.single().changed shouldContainExactly listOf("amount")
+        balance("Unit 01") shouldBe 48000
+        db.dsl.fetchCount(TRANSACTION_CORRECTION) shouldBe 2
+        reconcile("account,balance\nCH-1001,480.00\n".toByteArray()).inconsistentAccounts.shouldBeEmpty()
+
+        // The database refuses a transaction created at 0.
+        shouldThrow<Exception> { db.dsl.execute("UPDATE finance.transaction SET amount_cents = 0, version = 1 WHERE external_id = 'A-1'") }
+            .message shouldContain "transaction_zero_only_when_voided"
+    }
+
+    @Test
     fun `account mapping is exact and fixed once transactions exist`() {
         accounts(root, hoa, "unit_label,account\nUnit 01,CH-1001\nUnit 02,CH-1002\n".toByteArray(), true, "r")
         // Corrected before any transaction: allowed.

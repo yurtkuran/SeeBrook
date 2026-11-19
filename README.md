@@ -87,6 +87,15 @@ seebrook account-statement --operator <email> --hoa channel-harbor --unit "Unit 
 seebrook reconcile-balances --operator <email> --hoa channel-harbor --file $F/expected-balances.csv
 ```
 
+The HOA's register workbook converts into those three files (ED-42). It needs no database; write the output outside the repository, because it holds real financial data:
+
+```bash
+seebrook convert-register --file "<register>.xlsx" --year 2026 --out ~/seebrook-import/2026-11
+# then import-accounts (first time), import-transactions (dry run, then --commit) and reconcile-balances
+```
+
+Owners read one property's finances at `GET /v1/properties/{id}/finance/summary` and `GET /v1/properties/{id}/finance/transactions` (ED-42).
+
 Uploaded PDFs, new versions included, are checked at once, kept in quarantine, scanned by ClamAV in the background and published only when clean (ED-38). Locally, ClamAV takes about a minute to load its signatures after `scripts/dev.sh` starts it.
 
 The server sends queued invitation emails in the background (`seebrook run-jobs` sends them without a server). Locally, every email is caught by Mailpit — open http://localhost:8025 to read it and copy the invitation code; nothing is sent to real addresses. In production, emails stay queued until email is configured (ED-35, ED-36).

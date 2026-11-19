@@ -21,6 +21,9 @@ data class PropertyView(
     val postalCode: String,
 )
 
+/** An owner's current ownership of one property; see [Ownerships.ownerPeriod]. */
+data class OwnerPeriod(val hoaId: UUID, val startedAt: java.time.Instant, val previousOwnersLeftAt: java.time.Instant?)
+
 /**
  * The single definition of owner access to a property: an active ownership row (GA-07, GA-10).
  * Matching on both HOA and property keeps every lookup HOA-scoped (GA-06).
@@ -100,6 +103,29 @@ object Ownerships {
             .let { if (lock) it.forUpdate() else it }
             .fetch { requireNotNull(it.value1()) }
             .toSet()
+
+    /**
+     * The user's active ownership of [propertyId], or null when they do not actively own it.
+     * [previousOwnersLeftAt] is when the latest earlier owner (someone else whose ownership ended
+     * no later than this one started) left, the start of what this owner may see of the unit's
+     * history (ED-42); null when nobody owned the unit before them. Co-owners who overlapped with
+     * this owner do not count: their history was shared.
+     */
+    fun ownerPeriod(tx: DSLContext, propertyId: UUID, userId: UUID): OwnerPeriod? {
+        val mine = tx.select(OWNERSHIP.HOA_ID, OWNERSHIP.STARTED_AT).from(OWNERSHIP)
+            .where(OWNERSHIP.PROPERTY_ID.eq(propertyId))
+            .and(OWNERSHIP.USER_ID.eq(userId))
+            .and(OWNERSHIP.ENDED_AT.isNull)
+            .fetchOne() ?: return null
+        val hoaId = requireNotNull(mine.value1())
+        val previous = tx.select(DSL.max(OWNERSHIP.ENDED_AT)).from(OWNERSHIP)
+            .where(OWNERSHIP.HOA_ID.eq(hoaId))
+            .and(OWNERSHIP.PROPERTY_ID.eq(propertyId))
+            .and(OWNERSHIP.USER_ID.ne(userId))
+            .and(OWNERSHIP.ENDED_AT.le(mine.value2()))
+            .fetchOne()?.value1()
+        return OwnerPeriod(hoaId, mine.value2().toInstant(), previous?.toInstant())
+    }
 
     /**
      * Ends these users' active ownership of the property now. History is kept: the row gets an

@@ -73,7 +73,7 @@ data class TransactionRow(val line: Long, val externalId: String, val account: S
 /**
  * Parses and validates a transaction file (ED-41). Columns: `transaction_id, account, date, type,
  * description, amount` and optional `due_date`. Every problem is reported with its line; any
- * problem rejects the whole file.
+ * problem rejects the whole file. An amount of 0 is allowed: it voids a known transaction (ED-42).
  */
 object TransactionCsv {
     val COLUMNS = listOf("transaction_id", "account", "date", "type", "description", "amount", "due_date")
@@ -123,7 +123,6 @@ object TransactionCsv {
                 if (it == null) errors += RowError(row.line, "amount", "'$text' is not an amount in dollars and cents")
             }
         }
-        if (amount == 0L) errors += RowError(row.line, "amount", "is zero")
         if (type != null && amount != null && amount != 0L && !type.allows(amount)) {
             val expected = if (amount > 0) "a negative" else "a positive"
             errors += RowError(row.line, "amount", "${type.code} needs $expected amount (charges are positive, payments and waivers negative)")
@@ -149,6 +148,8 @@ object TransactionCsv {
  *  - a known ID on a different account is a conflict: moving money between properties is never
  *    inferred from a file;
  *  - transactions missing from the file are left alone (files may be partial);
+ *  - an amount of 0 voids a known transaction: only its amount changes, through a correction with
+ *    a reversal; a new ID with 0 has nothing to post and is skipped (ED-42);
  *  - the same file twice, or any file already applied, changes nothing.
  * Dry run by default; a commit is applied in one transaction under a per-HOA lock.
  */
@@ -162,11 +163,16 @@ class ImportTransactions(private val db: Database) {
         val toCreate: List<TransactionRow>,
         val toCorrect: List<Correction>,
         val unchanged: Int,
+        /** New transaction IDs with amount 0: nothing to post (ED-42). */
+        val zeroSkipped: Int,
         /** The total change to balances across all accounts, in cents. */
         val netChangeCents: Long,
         val accountsAffected: Int,
     ) {
         val isEmpty get() = toCreate.isEmpty() && toCorrect.isEmpty()
+
+        /** Corrections that void a transaction (new amount 0). */
+        val voids get() = toCorrect.count { it.row.values.amountCents == 0L && it.before.amountCents != 0L }
     }
 
     sealed interface Result {
@@ -237,6 +243,7 @@ class ImportTransactions(private val db: Database) {
         val toCreate = mutableListOf<TransactionRow>()
         val toCorrect = mutableListOf<Correction>()
         var unchanged = 0
+        var zeroSkipped = 0
         var net = 0L
         val affected = mutableSetOf<UUID>()
 
@@ -244,10 +251,17 @@ class ImportTransactions(private val db: Database) {
             conflicts += "Account '$account' is not mapped to a unit (lines ${unknown.joinToString(",") { it.line.toString() }}); " +
                 "map it with import-accounts first"
         }
-        for (row in rows) {
-            val account = accounts[row.account] ?: continue
-            val current = known[row.externalId]
+        for (fileRow in rows) {
+            val account = accounts[fileRow.account] ?: continue
+            val current = known[fileRow.externalId]
+            // A void changes only the amount; the transaction keeps its other values (ED-42).
+            val row = if (fileRow.values.amountCents == 0L && current != null) {
+                fileRow.copy(values = current.values.copy(amountCents = 0))
+            } else {
+                fileRow
+            }
             when {
+                current == null && row.values.amountCents == 0L -> zeroSkipped++
                 current == null -> {
                     toCreate += row
                     net += row.values.amountCents
@@ -265,7 +279,7 @@ class ImportTransactions(private val db: Database) {
             }
         }
         if (conflicts.isNotEmpty()) return Result.Conflicts(conflicts)
-        return Result.Planned(Plan(rows.size, toCreate, toCorrect, unchanged, net, affected.size))
+        return Result.Planned(Plan(rows.size, toCreate, toCorrect, unchanged, zeroSkipped, net, affected.size))
     }
 
     private fun apply(
@@ -285,7 +299,7 @@ class ImportTransactions(private val db: Database) {
                 .set(IMPORT_BATCH.ROW_COUNT, plan.rowCount)
                 .set(IMPORT_BATCH.CREATED_COUNT, plan.toCreate.size)
                 .set(IMPORT_BATCH.CORRECTED_COUNT, plan.toCorrect.size)
-                .set(IMPORT_BATCH.UNCHANGED_COUNT, plan.unchanged)
+                .set(IMPORT_BATCH.UNCHANGED_COUNT, plan.unchanged + plan.zeroSkipped)
                 .set(IMPORT_BATCH.IMPORTED_BY, actor.userId)
                 .set(IMPORT_BATCH.REASON, reason)
                 .returning(IMPORT_BATCH.ID).fetchSingle().id,
@@ -342,9 +356,10 @@ class ImportTransactions(private val db: Database) {
                 .set(TRANSACTION_CORRECTION.BEFORE, JSON.valueOf(c.before.toJson().toString()))
                 .set(TRANSACTION_CORRECTION.AFTER, JSON.valueOf(v.toJson().toString()))
                 .execute()
+            // A void posts only the reversal; restoring a voided one only the new amount.
             if (v.amountCents != c.before.amountCents) {
-                post(c.accountId, c.transactionId, -c.before.amountCents, "reversal")
-                post(c.accountId, c.transactionId, v.amountCents, "correction")
+                if (c.before.amountCents != 0L) post(c.accountId, c.transactionId, -c.before.amountCents, "reversal")
+                if (v.amountCents != 0L) post(c.accountId, c.transactionId, v.amountCents, "correction")
             }
         }
 
@@ -364,6 +379,8 @@ class ImportTransactions(private val db: Database) {
                     put("created", plan.toCreate.size)
                     put("corrected", plan.toCorrect.size)
                     put("unchanged", plan.unchanged)
+                    put("voided", plan.voids)
+                    put("zeroSkipped", plan.zeroSkipped)
                 },
             ),
         )

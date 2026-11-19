@@ -97,6 +97,16 @@ seebrook convert-register --file "<register>.xlsx" --year 2026 --out ~/seebrook-
 
 Owners read one property's finances at `GET /v1/properties/{id}/finance/summary` and `GET /v1/properties/{id}/finance/transactions` (ED-42).
 
+Payments (ED-43) go through a provider-neutral layer; Stripe (Connect) in production, a simulated provider locally that moves no money. Set up an HOA's payment methods and the fee the owner pays for each:
+
+```bash
+seebrook configure-payments --operator <email> --hoa channel-harbor --provider simulated --merchant sim_channel_harbor \
+  --card-fee 2.9%+0.30 --ach-fee 0 --commit --reason "Payments setup"    # fee: off, 0 (HOA absorbs), 3%, 1.50 or 2.9%+0.30
+seebrook list-payments --operator <email> --hoa channel-harbor
+```
+
+Owners quote and pay with `POST /v1/properties/{id}/payments/quote` and `POST /v1/properties/{id}/payments`, and list theirs with `GET /v1/properties/{id}/payments`. Providers call `POST /v1/webhooks/payments/{provider}`; only a confirmed payment credits the ledger, with the dues only. Locally, play the provider's part with `seebrook dev-payment-event --hoa channel-harbor --payment PAY-… --status succeeded`.
+
 Uploaded PDFs, new versions included, are checked at once, kept in quarantine, scanned by ClamAV in the background and published only when clean (ED-38). Locally, ClamAV takes about a minute to load its signatures after `scripts/dev.sh` starts it.
 
 The server sends queued invitation emails in the background (`seebrook run-jobs` sends them without a server). Locally, every email is caught by Mailpit — open http://localhost:8025 to read it and copy the invitation code; nothing is sent to real addresses. In production, emails stay queued until email is configured (ED-35, ED-36).

@@ -14,7 +14,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.jooq.DSLContext
 import org.jooq.impl.DSL
+import cc.seebrook.tenant.Hoas
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 
 /** Balances come only from the ledger (GA-21). Positive: owed; negative: a credit. */
@@ -34,11 +36,14 @@ internal object Ledger {
 
     /**
      * The ledger invariant: every account's ledger sum equals the sum of its transactions'
-     * current amounts. Returns the accounts where it does not hold (expected: none).
+     * current amounts minus the dues of its settled payments (ED-43). Returns the accounts where it
+     * does not hold (expected: none).
      */
     fun inconsistentAccounts(tx: DSLContext, hoaId: UUID): Set<UUID> {
         val ledger = balances(tx, hoaId)
-        val totals = transactionTotals(tx, hoaId)
+        val imported = transactionTotals(tx, hoaId)
+        val payments = PaymentStore.settledTotals(tx, hoaId)
+        val totals = (imported.keys + payments.keys).associateWith { (imported[it] ?: 0L) + (payments[it] ?: 0L) }
         return (ledger.keys + totals.keys).filter { (ledger[it] ?: 0L) != (totals[it] ?: 0L) }.toSet()
     }
 }
@@ -98,12 +103,9 @@ class AccountStatement(private val db: Database) {
             val corrections = DSL.field(
                 DSL.selectCount().from(TRANSACTION_CORRECTION).where(TRANSACTION_CORRECTION.TRANSACTION_ID.eq(TRANSACTION.ID)),
             )
-            var running = 0L
-            val lines = tx.select(TRANSACTION.asterisk(), corrections).from(TRANSACTION)
+            val imported = tx.select(TRANSACTION.asterisk(), corrections).from(TRANSACTION)
                 .where(TRANSACTION.HOA_ID.eq(hoaId)).and(TRANSACTION.ACCOUNT_ID.eq(account.id))
-                .orderBy(TRANSACTION.TRANSACTION_DATE, TRANSACTION.EXTERNAL_ID)
                 .fetch { r ->
-                    running += r.get(TRANSACTION.AMOUNT_CENTS)
                     Line(
                         r.get(TRANSACTION.EXTERNAL_ID),
                         requireNotNull(TransactionType.fromCode(r.get(TRANSACTION.TYPE))),
@@ -111,10 +113,20 @@ class AccountStatement(private val db: Database) {
                         r.get(TRANSACTION.DUE_DATE),
                         r.get(TRANSACTION.DESCRIPTION),
                         r.get(TRANSACTION.AMOUNT_CENTS),
-                        running,
+                        0,
                         r.get(corrections),
                     )
                 }
+            // Settled online payments are part of the statement too (ED-43).
+            val zone = ZoneId.of(requireNotNull(Hoas.find(tx, hoaId)).timeZone)
+            val payments = PaymentStore.settledLines(tx, hoaId, requireNotNull(account.id), zone).map {
+                Line(it.reference, it.type, it.date, null, it.description, it.amountCents, 0, 0)
+            }
+            var running = 0L
+            val lines = (imported + payments).sortedWith(compareBy({ it.date }, { it.externalId })).map {
+                running += it.amountCents
+                it.copy(runningBalanceCents = running)
+            }
             val balance = Ledger.balances(tx, hoaId)[account.id] ?: 0L
             Result.Statement(unitLabel, account.externalId, lines, balance)
         }

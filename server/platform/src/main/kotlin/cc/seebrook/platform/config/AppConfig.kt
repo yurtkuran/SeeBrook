@@ -92,6 +92,22 @@ sealed interface ScannerConfig {
     data object Disabled : ScannerConfig
 }
 
+/** Which payment providers this deployment can use (ED-43). Each HOA's settings pick one. */
+sealed interface PaymentsConfig {
+    /** Stripe Connect: one platform key; each HOA's connected account is its merchant. */
+    class Stripe(val secretKey: String, val publishableKey: String, val webhookSecret: String, val apiBase: String) : PaymentsConfig {
+        override fun toString(): String = "Stripe(apiBase=$apiBase, keys=****)"
+    }
+
+    /** Moves no money; outcomes come from `seebrook dev-payment-event`. Never in production. */
+    class Simulated(val webhookSecret: String) : PaymentsConfig {
+        override fun toString(): String = "Simulated(webhookSecret=****)"
+    }
+
+    /** No payments: owners see their history, and paying is unavailable. */
+    data object Disabled : PaymentsConfig
+}
+
 data class AppConfig(
     val environment: Environment,
     val httpPort: Int,
@@ -105,6 +121,7 @@ data class AppConfig(
     val storage: StorageConfig? = null,
     val scanner: ScannerConfig = ScannerConfig.Disabled,
     val documentMaxBytes: Int = DEFAULT_DOCUMENT_MAX_MB * 1024 * 1024,
+    val payments: PaymentsConfig = PaymentsConfig.Disabled,
 ) {
     companion object {
         /** Local Docker Compose database (infra/local). Used only when SEEBROOK_ENV=development. */
@@ -228,6 +245,39 @@ data class AppConfig(
             }
         }
 
+        /** Signs simulated payment events locally; protects nothing real. */
+        const val DEV_SIMULATED_WEBHOOK_SECRET = "seebrook-local-development-only-payments-secret"
+
+        private fun payments(env: Map<String, String>, environment: Environment): PaymentsConfig {
+            fun value(name: String) = env[name]?.trim()?.takeIf { it.isNotEmpty() }
+            val mode = value("SEEBROOK_PAYMENTS_MODE")?.lowercase() ?: if (environment == Environment.DEVELOPMENT) "simulated" else "disabled"
+            return when (mode) {
+                "stripe" -> {
+                    fun required(name: String, prefixes: List<String>): String {
+                        val v = value(name) ?: throw ConfigException("$name is required when SEEBROOK_PAYMENTS_MODE is stripe")
+                        if (prefixes.none { v.startsWith(it) }) throw ConfigException("$name does not look like a Stripe ${prefixes.joinToString("/")} key")
+                        return v
+                    }
+                    val apiBase = value("SEEBROOK_STRIPE_API_URL") ?: "https://api.stripe.com"
+                    if (!apiBase.startsWith("https://") && environment == Environment.PRODUCTION) {
+                        throw ConfigException("SEEBROOK_STRIPE_API_URL must be an https URL in production")
+                    }
+                    PaymentsConfig.Stripe(
+                        secretKey = required("SEEBROOK_STRIPE_SECRET_KEY", listOf("sk_", "rk_")),
+                        publishableKey = required("SEEBROOK_STRIPE_PUBLISHABLE_KEY", listOf("pk_")),
+                        webhookSecret = required("SEEBROOK_STRIPE_WEBHOOK_SECRET", listOf("whsec_")),
+                        apiBase = apiBase,
+                    )
+                }
+                "simulated" -> {
+                    if (environment == Environment.PRODUCTION) throw ConfigException("SEEBROOK_PAYMENTS_MODE=simulated is not allowed in production")
+                    PaymentsConfig.Simulated(value("SEEBROOK_SIMULATED_WEBHOOK_SECRET") ?: DEV_SIMULATED_WEBHOOK_SECRET)
+                }
+                "disabled" -> PaymentsConfig.Disabled
+                else -> throw ConfigException("SEEBROOK_PAYMENTS_MODE must be stripe, simulated or disabled, not '$mode'")
+            }
+        }
+
         /** `addr@domain` or `Name <addr@domain>`. */
         private val EMAIL_ADDRESS = Regex("^([^<>]+<)?[^@<>\\s]+@[^@<>\\s]+\\.[^@<>\\s]+>?$")
 
@@ -305,6 +355,7 @@ data class AppConfig(
                 storage = storage(env, environment),
                 scanner = scanner(env, environment),
                 documentMaxBytes = documentMaxMb * 1024 * 1024,
+                payments = payments(env, environment),
             )
         }
     }

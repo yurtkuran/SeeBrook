@@ -3,8 +3,10 @@ package cc.seebrook.app
 import cc.seebrook.app.cli.AdminCommands
 import cc.seebrook.app.cli.CommandException
 import cc.seebrook.app.cli.FinanceCommands
+import cc.seebrook.app.cli.PaymentCommands
 import cc.seebrook.app.cli.RegisterCommands
 import cc.seebrook.app.devtools.DevAuth
+import cc.seebrook.app.devtools.DevPayments
 import cc.seebrook.app.devtools.DevSeed
 import cc.seebrook.app.http.seebrookModule
 import cc.seebrook.db.Migrations
@@ -12,6 +14,7 @@ import cc.seebrook.platform.auth.IdTokenVerifier
 import cc.seebrook.platform.config.AppConfig
 import cc.seebrook.platform.config.AuthConfig
 import cc.seebrook.platform.config.ConfigException
+import cc.seebrook.platform.config.PaymentsConfig
 import cc.seebrook.platform.db.Database
 import cc.seebrook.platform.jobs.JobWorker
 import io.ktor.server.engine.embeddedServer
@@ -90,6 +93,17 @@ Finance (positive balances are owed, negative are credits):
                              accounts.csv in <dir>; checks every unit against the sheet's balance first. Needs no
                              database. Keep <dir> outside the repository: the files hold real financial data.
 
+Payments (ED-43):
+  configure-payments --operator <email> --hoa <slug> --provider <stripe|simulated> --merchant <id>
+                     --card-fee <fee> --ach-fee <fee> [--suspended true|false] [--commit --reason <text>]
+                             Set the HOA's provider, merchant account (Stripe: the HOA's connected account acct_…)
+                             and the fee the owner pays per method: off (not accepted), 0 (HOA absorbs the fee),
+                             3%, 1.50 or 2.9%+0.30. Dry run by default.
+  payment-settings --operator <email> --hoa <slug>
+  list-payments --operator <email> --hoa <slug> [--unit <label>]
+  dev-payment-event --hoa <slug> --payment <PAY-…> --status <processing|succeeded|failed|canceled> [--failure <code>]
+                             Development only: send the simulated provider's webhook to the local server.
+
 Background jobs:
   run-jobs                   Run queued jobs now (invitation emails, document scans) and exit. `serve` runs them continuously."""
 
@@ -104,6 +118,8 @@ private val ADMIN_COMMANDS = setOf(
 private val FINANCE_COMMANDS = setOf(
     "import-accounts", "import-transactions", "list-balances", "account-statement", "reconcile-balances",
 )
+
+private val PAYMENT_COMMANDS = setOf("configure-payments", "payment-settings", "list-payments", "dev-payment-event")
 
 private fun usage(): Nothing {
     System.err.println(USAGE)
@@ -121,7 +137,7 @@ fun main(args: Array<String>) {
         "serve", "migrate", "seed-dev", "run-jobs" -> if (operands.isNotEmpty()) usage()
         "dev-invite" -> if (operands.size != 2) usage()
         "dev-token" -> if (operands.size !in 1..2 || (operands.size == 2 && operands[1] != "--unverified")) usage()
-        in ADMIN_COMMANDS, in FINANCE_COMMANDS -> {}
+        in ADMIN_COMMANDS, in FINANCE_COMMANDS, in PAYMENT_COMMANDS -> {}
         "convert-register" -> {
             // Needs no configuration or database: it only reads the workbook and writes CSV files.
             try {
@@ -183,6 +199,27 @@ fun main(args: Array<String>) {
                 }
                 println(output)
             }
+            in PAYMENT_COMMANDS -> {
+                val payments = PaymentCommands(db, PaymentSetup.providers(config))
+                val output = try {
+                    when (command) {
+                        "configure-payments" -> payments.configure(operands)
+                        "payment-settings" -> payments.settings(operands)
+                        "list-payments" -> payments.list(operands)
+                        else -> DevPayments.devPaymentEvent(
+                            db, config.environment,
+                            (config.payments as? PaymentsConfig.Simulated)?.webhookSecret
+                                ?: throw CommandException("dev-payment-event needs SEEBROOK_PAYMENTS_MODE=simulated"),
+                            operands,
+                        )
+                    }
+                } catch (e: CommandException) {
+                    System.err.println("Error: ${e.message}")
+                    if (e.exitCode == 2) System.err.println(USAGE)
+                    exitProcess(e.exitCode)
+                }
+                println(output)
+            }
             in ADMIN_COMMANDS -> {
                 val admin = AdminCommands(db, BackgroundJobs.storage(config), config.documentMaxBytes)
                 val output = try {
@@ -235,8 +272,10 @@ fun main(args: Array<String>) {
                     is AuthConfig.Development -> IdTokenVerifier.development(auth.projectId, auth.secret.toByteArray())
                 }
                 log.info("Auth: {} (project {})", if (config.auth is AuthConfig.Firebase) "Firebase" else "development tokens", config.auth.projectId)
+                val payments = PaymentSetup.providers(config)
+                log.info("Payments: {}", payments.names.sorted().ifEmpty { listOf("disabled") }.joinToString())
                 try {
-                    embeddedServer(Netty, port = config.httpPort) { seebrookModule(db, verifier, BackgroundJobs.storage(config)) }
+                    embeddedServer(Netty, port = config.httpPort) { seebrookModule(db, verifier, BackgroundJobs.storage(config), payments = payments) }
                         .start(wait = true)
                 } finally {
                     worker?.close()

@@ -200,4 +200,26 @@ class AppConfigTest {
         shouldThrow<ConfigException> { AppConfig.fromEnvironment(s3 + ("SEEBROOK_S3_ENDPOINT" to "http://storage.example.test")) }
         shouldThrow<ConfigException> { AppConfig.fromEnvironment(s3 + ("SEEBROOK_DOCUMENT_MAX_MB" to "0")) }
     }
+
+    @Test
+    fun `payments are simulated in development, off in production, and Stripe needs its keys`() {
+        AppConfig.fromEnvironment(mapOf("SEEBROOK_ENV" to "development")).payments.shouldBeInstanceOf<PaymentsConfig.Simulated>()
+        val prod = productionDb + mapOf("SEEBROOK_FIREBASE_PROJECT_ID" to "seebrook-prod")
+        AppConfig.fromEnvironment(prod).payments shouldBe PaymentsConfig.Disabled
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(prod + ("SEEBROOK_PAYMENTS_MODE" to "simulated")) }
+
+        val stripe = prod + mapOf("SEEBROOK_PAYMENTS_MODE" to "stripe")
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(stripe) }.message shouldContain "SEEBROOK_STRIPE_SECRET_KEY"
+        val keys = stripe + mapOf(
+            "SEEBROOK_STRIPE_SECRET_KEY" to "sk_live_secretvalue",
+            "SEEBROOK_STRIPE_PUBLISHABLE_KEY" to "pk_live_x",
+            "SEEBROOK_STRIPE_WEBHOOK_SECRET" to "whsec_hookvalue",
+        )
+        val config = AppConfig.fromEnvironment(keys).payments.shouldBeInstanceOf<PaymentsConfig.Stripe>()
+        config.apiBase shouldBe "https://api.stripe.com"
+        config.toString() shouldNotContain "secretvalue"
+        config.toString() shouldNotContain "hookvalue"
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(keys + ("SEEBROOK_STRIPE_SECRET_KEY" to "pk_live_wrong")) }
+        shouldThrow<ConfigException> { AppConfig.fromEnvironment(keys + ("SEEBROOK_STRIPE_API_URL" to "http://stripe.test")) }
+    }
 }

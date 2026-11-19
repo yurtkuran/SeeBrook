@@ -4,6 +4,7 @@ import cc.seebrook.platform.auth.IdTokenVerifier
 import cc.seebrook.platform.auth.InvalidTokenException
 import cc.seebrook.platform.auth.TokenKeysUnavailableException
 import cc.seebrook.platform.db.Database
+import cc.seebrook.platform.payments.PaymentProviders
 import cc.seebrook.platform.storage.ObjectStorage
 import cc.seebrook.shared.api.ErrorResponse
 import cc.seebrook.shared.api.HealthResponse
@@ -36,13 +37,15 @@ internal const val FIREBASE_AUTH = "firebase"
 
 /**
  * [storage] null means document downloads answer 503 (storage disabled, ED-38). [clock] decides
- * "today" for due and overdue amounts; tests pass a fixed one.
+ * "today" for due and overdue amounts; tests pass a fixed one. [payments] are the payment providers
+ * this deployment can use (ED-43); none means paying is unavailable.
  */
 fun Application.seebrookModule(
     db: Database,
     tokenVerifier: IdTokenVerifier,
     storage: ObjectStorage? = null,
     clock: Clock = Clock.systemUTC(),
+    payments: PaymentProviders = PaymentProviders.NONE,
 ) {
     install(ContentNegotiation) {
         json(Json { explicitNulls = false })
@@ -81,6 +84,7 @@ fun Application.seebrookModule(
         accountRoutes(accounts)
         documentRoutes(accounts, DocumentActions(db, storage))
         financeRoutes(accounts, FinanceActions(db, clock))
+        paymentRoutes(accounts, PaymentActions(db, payments))
         get("/health/live") {
             call.respond(HealthResponse(HealthStatus.UP))
         }

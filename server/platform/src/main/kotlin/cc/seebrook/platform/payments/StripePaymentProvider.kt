@@ -1,6 +1,7 @@
 package cc.seebrook.platform.payments
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -17,6 +18,9 @@ import java.net.http.HttpResponse
 import java.security.MessageDigest
 import java.time.Clock
 import java.time.Duration
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
@@ -81,6 +85,61 @@ class StripePaymentProvider(
             currency = intent.string("currency")?.uppercase() ?: throw PaymentProviderException("Stripe returned a payment without a currency"),
             failureCode = if (status == ProviderPaymentStatus.FAILED) failureCode(intent) else null,
         )
+    }
+
+    override fun payouts(merchantRef: String, from: LocalDate, to: LocalDate): List<ProviderPayout> {
+        require(!to.isBefore(from)) { "to is before from" }
+        val params = listOf(
+            "arrival_date[gte]" to from.atStartOfDay(ZoneOffset.UTC).toEpochSecond().toString(),
+            "arrival_date[lt]" to to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toEpochSecond().toString(),
+        )
+        return list("/v1/payouts", params, merchantRef).map { p ->
+            ProviderPayout(
+                payoutId = p.string("id") ?: throw PaymentProviderException("Stripe returned a payout without an ID"),
+                amountCents = p.long("amount") ?: throw PaymentProviderException("Stripe returned a payout without an amount"),
+                currency = p.string("currency")?.uppercase() ?: throw PaymentProviderException("Stripe returned a payout without a currency"),
+                status = PAYOUT_STATUS[p.string("status")] ?: PayoutStatus.PENDING,
+                // Stripe gives the arrival day as a timestamp at its start (UTC).
+                arrivalDate = Instant.ofEpochSecond(p.long("arrival_date") ?: throw PaymentProviderException("Stripe returned a payout without an arrival date"))
+                    .atZone(ZoneOffset.UTC).toLocalDate(),
+            )
+        }.sortedWith(compareBy({ it.arrivalDate }, { it.payoutId }))
+    }
+
+    override fun payoutLines(merchantRef: String, payoutId: String): List<SettlementLine> {
+        require(PAYOUT_ID.matches(payoutId)) { "not a payout ID" }
+        val params = listOf("payout" to payoutId, "expand[]" to "data.source")
+        return list("/v1/balance_transactions", params, merchantRef).mapNotNull { t ->
+            val category = t.string("reporting_category")
+            if (category == "payout" || category == "payout_reversal") return@mapNotNull null
+            // The expanded charge, refund or dispute names its PaymentIntent.
+            val source = t["source"] as? JsonObject
+            SettlementLine(
+                kind = SETTLEMENT_KIND[category] ?: SettlementKind.OTHER,
+                sourceRef = source?.string("id") ?: t.string("source"),
+                providerPaymentId = source?.string("payment_intent"),
+                grossCents = t.long("amount") ?: throw PaymentProviderException("Stripe returned a balance transaction without an amount"),
+                feeCents = t.long("fee") ?: 0,
+                netCents = t.long("net") ?: throw PaymentProviderException("Stripe returned a balance transaction without a net amount"),
+                currency = t.string("currency")?.uppercase() ?: throw PaymentProviderException("Stripe returned a balance transaction without a currency"),
+            )
+        }
+    }
+
+    /** Every page of a Stripe list (at most [MAX_PAGES] of 100). */
+    private fun list(path: String, params: List<Pair<String, String>>, merchantRef: String): List<JsonObject> {
+        val items = mutableListOf<JsonObject>()
+        var after: String? = null
+        repeat(MAX_PAGES) {
+            val query = (params + ("limit" to "100") + listOfNotNull(after?.let { "starting_after" to it }))
+                .joinToString("&") { (k, v) -> "${encode(k)}=${encode(v)}" }
+            val page = call(HttpRequest.newBuilder(URI("$base$path?$query")).GET(), merchantRef)
+            val data = (page["data"] as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()
+            items += data
+            if ((page["has_more"] as? JsonPrimitive)?.booleanOrNull != true || data.isEmpty()) return items
+            after = data.last().string("id") ?: return items
+        }
+        throw PaymentProviderException("Stripe list $path has more than ${MAX_PAGES * 100} items")
     }
 
     /** Reads the connected account's balance: a harmless request that needs Stripe and the account to answer. */
@@ -194,6 +253,25 @@ class StripePaymentProvider(
 
         private val CONNECTED_ACCOUNT = Regex("^acct_[A-Za-z0-9]{1,64}$")
         private val PAYMENT_INTENT_ID = Regex("^pi_[A-Za-z0-9]{1,128}$")
+        private val PAYOUT_ID = Regex("^po_[A-Za-z0-9]{1,128}$")
+        private const val MAX_PAGES = 50
+        private val PAYOUT_STATUS = mapOf(
+            "pending" to PayoutStatus.PENDING,
+            "in_transit" to PayoutStatus.IN_TRANSIT,
+            "paid" to PayoutStatus.PAID,
+            "failed" to PayoutStatus.FAILED,
+            "canceled" to PayoutStatus.CANCELED,
+        )
+
+        /** By Stripe's `reporting_category`, which Stripe keeps stable for reconciliation. */
+        private val SETTLEMENT_KIND = mapOf(
+            "charge" to SettlementKind.PAYMENT,
+            "refund" to SettlementKind.REFUND,
+            "refund_failure" to SettlementKind.REFUND_FAILED,
+            "dispute" to SettlementKind.DISPUTE,
+            "dispute_reversal" to SettlementKind.DISPUTE_REVERSAL,
+            "fee" to SettlementKind.FEE,
+        )
         private val EVENT_STATUS = mapOf(
             "payment_intent.processing" to ProviderPaymentStatus.PROCESSING,
             "payment_intent.succeeded" to ProviderPaymentStatus.SUCCEEDED,
@@ -218,6 +296,8 @@ class StripePaymentProvider(
 }
 
 private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+private fun JsonObject.long(key: String): Long? = (this[key] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull
 
 /**
  * Stripe's webhook signature scheme, also used by the simulated provider: header

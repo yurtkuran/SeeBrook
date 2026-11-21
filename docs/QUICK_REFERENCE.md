@@ -106,6 +106,7 @@ $APP configure-payments "${O[@]}" --provider simulated --merchant sim_channel_ha
   --card-fee 2.9%+0.30 --ach-fee 0                    # dry run; add --commit --reason "..."; --suspended true pauses payments
 $APP payment-settings "${O[@]}"
 $APP list-payments "${O[@]}" [--unit "Unit 05"]
+$APP payout-report "${O[@]}" --from 2026-11-01 --to 2026-11-30 [--out $OUT/payouts.csv]   # what each Stripe bank deposit is made of
 $APP reconcile-payments                               # one reconciliation pass now (no operator; the server runs it every 5 minutes)
 $APP dev-payment-event --hoa channel-harbor --payment PAY-XXXXXXXX --status succeeded   # local only: play the provider
 ```
@@ -122,6 +123,7 @@ $APP dev-payment-event --hoa channel-harbor --payment PAY-XXXXXXXX --status succ
 3. Fill in the bank-side columns as usual (Posted Date, Account). Keep `Seebrook Ref`.
 4. Run the monthly import as usual. The import reports "Online payments matched" and does not post them again. A wrong unit or amount on a `PAY-…` row rejects the file and says which row.
 
+- Matching Stripe deposits in the bank: run `payout-report` for the month. Each deposit = the payments' dues + owners' fees − refunds − Stripe's fees. The report gives the fee and refund amounts per deposit and lists anything that doesn't match Seebrook (`CHECK:` lines).
 - The register sheet needs a `Seebrook Ref` column, added once as the last column.
 - Why Skip blanks: the register's Posted Balance (both), Balance, Payee, Category, Topic, Year and Month columns are formulas (Category is looked up from the `ID` code; `101` is HOA Dues). The export leaves those columns blank, and pasting with Paste Special → Skip blanks keeps your formulas.
 

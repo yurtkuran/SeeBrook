@@ -16,7 +16,13 @@ import java.time.ZoneOffset
 
 /** The Stripe adapter (ED-43) against a local fake of Stripe's API, and its webhook verification. */
 class StripePaymentProviderTest {
-    private data class Call(val method: String, val path: String, val headers: Map<String, String?>, val form: List<Pair<String, String>>)
+    private data class Call(
+        val method: String,
+        val path: String,
+        val headers: Map<String, String?>,
+        val form: List<Pair<String, String>>,
+        val query: List<Pair<String, String>> = emptyList(),
+    )
 
     private val calls = mutableListOf<Call>()
     private var reply: () -> Pair<Int, String> = {
@@ -25,13 +31,13 @@ class StripePaymentProviderTest {
 
     private val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
         createContext("/") { exchange ->
-            val body = exchange.requestBody.readBytes().decodeToString()
-            val form = body.split('&').filter { it.isNotEmpty() }.map {
+            fun pairs(text: String?) = text.orEmpty().split('&').filter { it.isNotEmpty() }.map {
                 val (k, v) = it.split('=', limit = 2)
                 URLDecoder.decode(k, Charsets.UTF_8) to URLDecoder.decode(v, Charsets.UTF_8)
             }
+            val form = pairs(exchange.requestBody.readBytes().decodeToString())
             val headers = listOf("Authorization", "Stripe-Account", "Stripe-Version", "Idempotency-Key").associateWith { exchange.requestHeaders.getFirst(it) }
-            synchronized(calls) { calls += Call(exchange.requestMethod, exchange.requestURI.path, headers, form) }
+            synchronized(calls) { calls += Call(exchange.requestMethod, exchange.requestURI.path, headers, form, pairs(exchange.requestURI.rawQuery)) }
             val (status, response) = reply()
             val bytes = response.toByteArray()
             exchange.sendResponseHeaders(status, bytes.size.toLong())
@@ -125,6 +131,49 @@ class StripePaymentProviderTest {
 
         reply = { 200 to """{"id":"pi_123","status":"succeeded"}""" }
         shouldThrow<PaymentProviderException> { stripe.lookupPayment("acct_hoa1", "pi_123") } // no amount: never guessed
+    }
+
+    @Test
+    fun `payouts are listed by arrival day across pages`() {
+        val pages = ArrayDeque(
+            listOf(
+                """{"data":[{"id":"po_2","amount":40106,"currency":"usd","status":"paid","arrival_date":1763683200}],"has_more":true}""",
+                """{"data":[{"id":"po_1","amount":-500,"currency":"usd","status":"in_transit","arrival_date":1763596800}],"has_more":false}""",
+            ),
+        )
+        reply = { 200 to pages.removeFirst() }
+        stripe.payouts("acct_hoa1", java.time.LocalDate.parse("2025-11-20"), java.time.LocalDate.parse("2025-11-21")) shouldBe listOf(
+            ProviderPayout("po_1", -500, "USD", PayoutStatus.IN_TRANSIT, java.time.LocalDate.parse("2025-11-20")),
+            ProviderPayout("po_2", 40_106, "USD", PayoutStatus.PAID, java.time.LocalDate.parse("2025-11-21")),
+        )
+        calls.map { it.path } shouldBe listOf("/v1/payouts", "/v1/payouts")
+        calls[0].query.toMap() shouldBe mapOf("arrival_date[gte]" to "1763596800", "arrival_date[lt]" to "1763769600", "limit" to "100")
+        calls[1].query.toMap()["starting_after"] shouldBe "po_2"
+        calls.all { it.headers["Stripe-Account"] == "acct_hoa1" && it.method == "GET" } shouldBe true
+    }
+
+    @Test
+    fun `payout lines are normalized by reporting category and leave out the payout itself`() {
+        reply = {
+            200 to """{"has_more":false,"data":[
+                {"amount":15500,"fee":480,"net":15020,"currency":"usd","reporting_category":"charge","source":{"id":"ch_1","object":"charge","payment_intent":"pi_1"}},
+                {"amount":-5000,"fee":0,"net":-5000,"currency":"usd","reporting_category":"refund","source":{"id":"re_1","object":"refund","payment_intent":"pi_1"}},
+                {"amount":-15500,"fee":1500,"net":-17000,"currency":"usd","reporting_category":"dispute","source":{"id":"dp_1","object":"dispute","payment_intent":"pi_2"}},
+                {"amount":-200,"fee":0,"net":-200,"currency":"usd","reporting_category":"fee","source":"fee_9"},
+                {"amount":100,"fee":0,"net":100,"currency":"usd","reporting_category":"other_adjustment","source":null},
+                {"amount":-6920,"fee":0,"net":-6920,"currency":"usd","reporting_category":"payout","source":{"id":"po_1","object":"payout"}}
+            ]}"""
+        }
+        stripe.payoutLines("acct_hoa1", "po_1") shouldBe listOf(
+            SettlementLine(SettlementKind.PAYMENT, "ch_1", "pi_1", 15_500, 480, 15_020, "USD"),
+            SettlementLine(SettlementKind.REFUND, "re_1", "pi_1", -5_000, 0, -5_000, "USD"),
+            SettlementLine(SettlementKind.DISPUTE, "dp_1", "pi_2", -15_500, 1_500, -17_000, "USD"),
+            SettlementLine(SettlementKind.FEE, "fee_9", null, -200, 0, -200, "USD"),
+            SettlementLine(SettlementKind.OTHER, null, null, 100, 0, 100, "USD"),
+        )
+        calls.last().path shouldBe "/v1/balance_transactions"
+        calls.last().query shouldBe listOf("payout" to "po_1", "expand[]" to "data.source", "limit" to "100")
+        shouldThrow<IllegalArgumentException> { stripe.payoutLines("acct_hoa1", "po_1&payout=po_2") }
     }
 
     @Test

@@ -49,5 +49,9 @@ class StripeMockTest {
             stripe.lookupPayment("acct_1Hoa", payment.providerPaymentId).providerPaymentId shouldStartWith "pi_"
         }
         stripe.checkAvailable("acct_1Hoa") // a valid balance request
+        // Valid list requests; stripe-mock answers with fixtures.
+        val payouts = stripe.payouts("acct_1Hoa", java.time.LocalDate.parse("2026-11-01"), java.time.LocalDate.parse("2026-11-30"))
+        payouts.first().payoutId shouldStartWith "po_"
+        stripe.payoutLines("acct_1Hoa", payouts.first().payoutId).first().grossCents shouldBe 100
     }
 }

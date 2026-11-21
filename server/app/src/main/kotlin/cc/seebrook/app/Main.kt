@@ -108,6 +108,10 @@ Payments (ED-43):
                   [--first-id 2026-00391] [--category-id 101]
                              Received online payments as rows for the register workbook (its columns plus Seebrook
                              Ref), to paste with Skip blanks. Keep the file outside the repository.
+  payout-report --operator <email> --hoa <slug> --from <date> --to <date> [--out <file.csv>]
+                             What each bank deposit from the provider is made of: payments, refunds, the provider's
+                             actual fees and the net, matched to Seebrook's records; anything that does not match is
+                             listed. --out writes every line as CSV (keep it outside the repository).
   reconcile-payments         Ask the provider about payments that have not settled and apply what changed (lost or
                              late webhooks); resume HOAs paused by a provider outage once it answers. `serve` does
                              this every 5 minutes. System action: no operator.
@@ -129,7 +133,7 @@ private val FINANCE_COMMANDS = setOf(
     "import-accounts", "import-transactions", "list-balances", "account-statement", "reconcile-balances",
 )
 
-private val PAYMENT_COMMANDS = setOf("configure-payments", "payment-settings", "list-payments", "export-payments", "reconcile-payments", "dev-payment-event")
+private val PAYMENT_COMMANDS = setOf("configure-payments", "payment-settings", "list-payments", "export-payments", "payout-report", "reconcile-payments", "dev-payment-event")
 
 private fun usage(): Nothing {
     System.err.println(USAGE)
@@ -218,6 +222,7 @@ fun main(args: Array<String>) {
                         "list-payments" -> payments.list(operands)
                         "export-payments" -> payments.export(operands)
                         "reconcile-payments" -> payments.reconcile(operands)
+                        "payout-report" -> payments.payoutReport(operands)
                         else -> DevPayments.devPaymentEvent(
                             db, config.environment,
                             (config.payments as? PaymentsConfig.Simulated)?.webhookSecret

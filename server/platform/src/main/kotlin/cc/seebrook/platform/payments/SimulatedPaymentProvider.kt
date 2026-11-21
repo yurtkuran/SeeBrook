@@ -8,6 +8,7 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import java.security.MessageDigest
 import java.time.Clock
+import java.time.LocalDate
 import java.util.UUID
 
 /**
@@ -31,6 +32,11 @@ class SimulatedPaymentProvider(
     /** Keeps no state: every payment looks unfinished, so reconciliation leaves it to the webhooks. */
     override fun lookupPayment(merchantRef: String, providerPaymentId: String) =
         ProviderPaymentSnapshot(providerPaymentId, ProviderPaymentStatus.AWAITING_OWNER, 0, "USD", null)
+
+    /** Moves no money, so nothing is ever paid out. */
+    override fun payouts(merchantRef: String, from: LocalDate, to: LocalDate) = emptyList<ProviderPayout>()
+
+    override fun payoutLines(merchantRef: String, payoutId: String) = emptyList<SettlementLine>()
 
     override fun checkAvailable(merchantRef: String) {
         if (!merchantRef.startsWith(MERCHANT_PREFIX)) throw PaymentRequestRejectedException("unknown simulated merchant")

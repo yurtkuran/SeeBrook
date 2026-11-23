@@ -8,6 +8,7 @@ import cc.seebrook.finance.GetPaymentSettings
 import cc.seebrook.finance.ListHoaPayments
 import cc.seebrook.finance.Money
 import cc.seebrook.finance.MonitorPayments
+import cc.seebrook.finance.PayoutReport
 import cc.seebrook.finance.PaymentSettings
 import cc.seebrook.identity.ResolveOperator
 import cc.seebrook.platform.auth.Permission
@@ -15,6 +16,7 @@ import cc.seebrook.platform.auth.UserActor
 import cc.seebrook.platform.db.Database
 import cc.seebrook.platform.payments.PaymentMethod
 import cc.seebrook.platform.payments.PaymentProviders
+import cc.seebrook.platform.payments.SettlementKind
 import cc.seebrook.property.Properties
 import cc.seebrook.tenant.FindHoa
 import java.math.BigDecimal
@@ -111,6 +113,62 @@ class PaymentCommands(private val db: Database, private val providers: PaymentPr
             }
             append("Paste the rows into the register with Paste Special > Skip blanks, so its formula columns are kept.")
         }
+    }
+
+    /** What each bank deposit from the provider is made of (ED-47); optionally every line as CSV. */
+    fun payoutReport(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "from", "to", "out"))
+        fun date(name: String) = o.required(name).let { runCatching { LocalDate.parse(it) }.getOrNull() ?: throw CommandException("--$name '$it' is not a date (YYYY-MM-DD)", 2) }
+        val from = date("from")
+        val to = date("to")
+        val out = o["out"]?.let { Path.of(it) }?.also {
+            if (Files.exists(it)) throw CommandException("$it already exists; choose another file name")
+            if (it.parent != null && !Files.isDirectory(it.parent)) throw CommandException("No folder ${it.parent}")
+        }
+        val report = when (val r = PayoutReport(db, providers)(operator(o.required("operator")), hoaId(o.required("hoa")), from, to)) {
+            is PayoutReport.Result.Report -> r
+            PayoutReport.Result.Forbidden -> throw CommandException("Operator may not manage finances in this HOA")
+            PayoutReport.Result.InvalidRange -> throw CommandException("--to must be on or after --from, and within a year of it", 2)
+            PayoutReport.Result.NotConfigured -> throw CommandException("Payments are not set up for this HOA on this server")
+            PayoutReport.Result.ProviderUnavailable -> throw CommandException("The payment provider could not be reached; try again later")
+            is PayoutReport.Result.ProviderRefused -> throw CommandException("The payment provider refused: ${r.message}")
+        }
+        out?.let { Files.write(it, PayoutReport.csv(report.payouts), StandardOpenOption.CREATE_NEW) }
+        return describePayouts(report.payouts, from, to) + (out?.let { "\nEvery line written to $it." } ?: "")
+    }
+
+    private fun describePayouts(payouts: List<PayoutReport.Payout>, from: LocalDate, to: LocalDate): String = buildString {
+        if (payouts.isEmpty()) {
+            append("No payouts arriving from $from to $to.")
+            return@buildString
+        }
+        fun row(label: String, cents: Long) = appendLine("  ${label.padEnd(30)}${Money.format(cents).padStart(13)}")
+        payouts.forEach { p ->
+            appendLine("Payout ${p.payoutId}, arriving ${p.arrivalDate} (${p.status.name.lowercase().replace('_', ' ')}): ${Money.format(p.depositCents)} to the bank")
+            val payments = p.lines.count { it.kind == SettlementKind.PAYMENT }
+            row("Payments received ($payments)", p.paymentsCents)
+            if (p.refundsCents != 0L) row("Refunds and returns", p.refundsCents)
+            row("Provider fees", p.providerFeesCents)
+            if (p.otherCents != 0L) row("Other", p.otherCents)
+            row("Net deposit", p.netCents)
+            appendLine("  Of the payments: dues ${Money.format(p.duesCents)}, fees paid by owners ${Money.format(p.ownerFeesCents)}.")
+            appendLine(
+                when {
+                    p.processingCostCents > 0 -> "  Processing cost to the HOA: ${Money.format(p.processingCostCents)} (provider fees less owners' fees)."
+                    p.processingCostCents < 0 -> "  Owners' fees exceeded provider fees by ${Money.format(-p.processingCostCents)}."
+                    else -> "  Owners' fees covered the provider fees exactly."
+                },
+            )
+            val problems = p.problems
+            if (problems.isEmpty()) appendLine("  Every line matches Seebrook.") else problems.forEach { appendLine("  CHECK: $it") }
+            appendLine()
+        }
+        val problems = payouts.sumOf { it.problems.size }
+        append(
+            "${payouts.size} payout(s), ${Money.format(payouts.sumOf { it.depositCents })} to the bank; " +
+                "provider fees ${Money.format(-payouts.sumOf { it.providerFeesCents })}; " +
+                if (problems == 0) "everything matches." else "$problems item(s) to check.",
+        )
     }
 
     /** One monitoring pass now (ED-46); the server runs the same pass every few minutes. A system action: no operator. */

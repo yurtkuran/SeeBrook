@@ -1,5 +1,7 @@
 package cc.seebrook.platform.payments
 
+import java.time.LocalDate
+
 /** How an owner pays. Wallets (Apple Pay, Google Pay) are cards. */
 enum class PaymentMethod(val code: String) {
     CARD("card"),
@@ -88,6 +90,38 @@ data class ProviderPaymentSnapshot(
     val failureCode: String?,
 )
 
+enum class PayoutStatus { PENDING, IN_TRANSIT, PAID, FAILED, CANCELED }
+
+/** One transfer of settled money from the provider to the HOA's bank account (ED-47). */
+data class ProviderPayout(
+    val payoutId: String,
+    /** What reaches the bank: the net of all its lines. */
+    val amountCents: Long,
+    val currency: String,
+    val status: PayoutStatus,
+    /** The day the bank receives it. */
+    val arrivalDate: LocalDate,
+)
+
+/** What a settlement line is, in Seebrook's terms. */
+enum class SettlementKind { PAYMENT, REFUND, REFUND_FAILED, DISPUTE, DISPUTE_REVERSAL, FEE, OTHER }
+
+/**
+ * One money movement inside a payout (ED-47). [grossCents] is the amount moved (negative when money
+ * left the HOA), [feeCents] the provider's own fee on it (positive is a cost), and
+ * [netCents] = gross − fee. [sourceRef] is the provider's charge, refund or dispute ID;
+ * [providerPaymentId] the payment it belongs to, when there is one.
+ */
+data class SettlementLine(
+    val kind: SettlementKind,
+    val sourceRef: String?,
+    val providerPaymentId: String?,
+    val grossCents: Long,
+    val feeCents: Long,
+    val netCents: Long,
+    val currency: String,
+)
+
 /** A verified provider event, normalized. */
 sealed interface PaymentEvent {
     val eventId: String
@@ -163,6 +197,12 @@ interface PaymentProvider {
      * suspension (ED-46). Moves no money and changes nothing.
      */
     fun checkAvailable(merchantRef: String)
+
+    /** Payouts to the HOA's bank arriving on [from] through [to] (inclusive), oldest first (ED-47). */
+    fun payouts(merchantRef: String, from: LocalDate, to: LocalDate): List<ProviderPayout>
+
+    /** The money movements a payout is made of, without the payout itself (ED-47). */
+    fun payoutLines(merchantRef: String, payoutId: String): List<SettlementLine>
 
     /** Checks an incoming webhook's signature and age, then normalizes it. */
     fun verifyWebhook(payload: ByteArray, header: (String) -> String?): WebhookVerification

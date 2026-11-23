@@ -1,0 +1,50 @@
+---
+title: Seebrook open items
+tags: [seebrook, status]
+updated: 2026-11-23
+---
+
+# Open items
+
+A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.md` (Pending decisions) and `OPEN_QUESTIONS.md`. Updated with every change that opens or closes an item.
+
+## Owner actions
+
+- [ ] **Legal entity**: decide who owns the accounts, domain, Firebase project and Stripe relationship. *Before any paid or production account.*
+- [ ] **Firebase development project** (free): needed for real email/Google sign-in on the phone. Development tokens stand in until then.
+- [ ] **Stripe test-mode account** with Connect and a test connected account (free): needed for checkout testing on the phone.
+- [ ] **Stripe live setup**: platform account, Channel Harbor's connected account, webhook with the 8 events, restricted key. *Before the first real payment.*
+- [ ] **Card surcharge**: confirm it is allowed and set the amount. *Before real card payments; until then the card fee is $0 or cards are off.*
+- [ ] **Hosting provider**: also settles object storage, alert delivery and backups. *Before TestFlight and the pilot.*
+- [ ] **Brevo account** and `seebrook.cc` domain authentication. *Before the first real invitation.*
+- [ ] **Apple Developer Program** ($99/yr). *At TestFlight; until then testing runs on the owner's iPhone with a free Personal Team.*
+- [ ] **Google Play account** ($25). *When the Android app starts.*
+- [ ] **Pilot roster and PDFs**, provided securely. *Synthetic data until then.*
+- [ ] **First real `convert-register` dry run** on the Channel Harbor workbook. *Before importing real data.*
+
+## Decisions pending
+
+- [ ] **iOS details**: lowest supported version (recommended iOS 17), app name and bundle ID (proposed `cc.seebrook.app`; fixed after the first TestFlight upload), development-token sign-in in debug builds (recommended).
+- [ ] **Account deletion**: proposed to remove identity and contact details and keep the ledger and audit history. Needs owner approval and a legal check. *Before App Store submission.*
+- [ ] **Privacy policy and terms**: who writes and publishes them (Seebrook or the HOA). *Before App Store submission.*
+- [ ] **Android owners in the pilot**: start with iOS owners only, or wait for Android. *Before M7.*
+- [ ] **Root MFA**: enforce TOTP for the root administrator. *Before a second HOA joins.*
+
+## Engineering
+
+- [ ] **M5 iOS app**: shared module and Xcode setup → sign-in → properties → documents → balance and history → checkout.
+- [ ] **Backend for the app**: push device registration, owner profile edits, account deletion (after the decision).
+- [ ] **M6**: recurring payment plans, cancelling a departing owner's recurring charges at transfer, alert delivery.
+- [ ] **M7 pilot**: production setup, backup restore drill, security review, owner onboarding.
+- [ ] **Later**: financial admin web portal (before a second HOA), Android app.
+
+## In review
+
+- PR #25: this checklist.
+
+## Recently closed
+
+- 2026-11-23: Payout report merged (ED-47, PR #24).
+- 2026-11-23: Apple Developer Program deferred to TestFlight; on-device testing uses a free Personal Team.
+- 2026-11-19: Payment reconciliation and outage handling (ED-46, PR #23).
+- 2026-11-19: Payment processor chosen: Stripe with Connect (ED-43).

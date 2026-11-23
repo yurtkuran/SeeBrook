@@ -1,7 +1,7 @@
 ---
 title: Seebrook quick reference
 tags: [seebrook, reference]
-updated: 2026-11-19
+updated: 2026-11-23
 ---
 
 # Seebrook quick reference
@@ -145,6 +145,7 @@ git branch --merged develop                  # local branches safe to delete
 | `docs/ROADMAP.md` | Milestones M0–M7 |
 | `docs/ENGINEERING_DECISIONS.md` | Engineering decisions (ED-xx) and pending decisions |
 | `docs/DECISIONS.md` | Approved product decisions (GA-xx) |
+| `docs/OPEN_ITEMS.md` | Checklist of open owner actions, pending decisions and remaining work |
 | `docs/OPEN_QUESTIONS.md` | Questions still open and when they must be answered |
 | `docs/REQUIREMENTS.md` | Product requirements |
 | `README.md` | Setup and the full command list |

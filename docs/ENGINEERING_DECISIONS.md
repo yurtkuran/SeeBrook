@@ -28,16 +28,16 @@ This complements — and never overrides — the approved product constraints in
 | ED-12 | Branching: feature branches off `master`; no direct commits | Superseded by ED-18 | 2026-11-13 |
 | ED-13 | Logical services (modular monolith) in one deployable backend | Accepted | 2026-11-13 |
 | ED-14 | Action-style use cases as the single entry point for API and CLI | Accepted | 2026-11-13 |
-| ED-15 | Mobile: KMP shared logic; native UI (SwiftUI on iOS, Jetpack Compose on Android) | Accepted | 2026-11-14 |
+| ED-15 | Mobile: KMP shared logic; native UI (SwiftUI on iOS, Jetpack Compose on Android) | Accepted, amended by ED-17, ED-48 | 2026-11-14 |
 | ED-16 | Mobile sequencing: iOS app first, Android after iOS is complete | Accepted | 2026-11-14 |
 | ED-17 | Business logic lives in the backend; clients are thin; exceptions documented | Accepted | 2026-11-14 |
 | ED-18 | Git flow: feature → `develop` → `master` → production | Accepted | 2026-11-14 |
-| ED-19 | Repository layout: single Gradle build at root; `docs/` at root | Accepted | 2026-11-14 |
+| ED-19 | Repository layout: single Gradle build at root; `docs/` at root | Accepted, amended by ED-48 | 2026-11-14 |
 | ED-20 | JDK distribution: Eclipse Temurin 21 everywhere | Accepted | 2026-11-14 |
 | ED-21 | Database module: central migrations and jOOQ codegen from SQL scripts | Accepted | 2026-11-14 |
 | ED-22 | PostgreSQL 18; local environment via Docker Compose and `scripts/dev.sh` | Accepted | 2026-11-14 |
 | ED-23 | Configuration via environment variables; explicit `SEEBROOK_ENV` | Accepted | 2026-11-14 |
-| ED-24 | Shared module starts JVM-only; iOS targets added at iOS project setup | Accepted | 2026-11-14 |
+| ED-24 | Shared module starts JVM-only; iOS targets added at iOS project setup | Superseded by ED-48 | 2026-11-14 |
 | ED-25 | Dependency versions: version catalog, stable releases at least two weeks old | Accepted | 2026-11-14 |
 | ED-26 | Record identifiers: UUIDv7 primary keys; HOA-scoped composite references | Accepted | 2026-11-14 |
 | ED-27 | Protected branches enforced by local git hooks (no GitHub branch protection) | Accepted | 2026-11-14 |
@@ -61,6 +61,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-45 | Payment receipts and notices; refunds, failed refunds and disputes as linked compensating entries | Accepted | 2026-11-19 |
 | ED-46 | Payment reconciliation with the provider; automatic HOA-isolated suspension during provider outages | Accepted | 2026-11-19 |
 | ED-47 | Payout report: each bank deposit broken down into payments, refunds and the provider's actual fees, matched to Seebrook | Accepted | 2026-11-19 |
+| ED-48 | iOS project setup: shared framework, Xcode project, development sign-in; iOS 17, `cc.seebrook.app` | Accepted | 2026-11-23 |
 
 ## Pending decisions
 
@@ -202,7 +203,7 @@ This complements — and never overrides — the approved product constraints in
 - **Alternatives considered:** Controller-centric code with logic in route handlers — rejected; authorization and audit would be duplicated between API and CLI.
 
 ## ED-15 — Mobile: KMP shared logic with native UI
-- **Status:** Accepted, amended by ED-17 · **Date:** 2026-11-14 · **Decided by:** project owner
+- **Status:** Accepted, amended by ED-17 and ED-48 · **Date:** 2026-11-14 · **Decided by:** project owner
 - **Context:** `PRODUCT.md` prefers native iOS/Android with Kotlin Multiplatform as a candidate. Options compared: fully native, KMP shared logic + native UI, KMP + Compose Multiplatform (shared UI), React Native/Expo, Flutter.
 - **Decision:**
   - **Shared (KMP, Kotlin):** API client (Ktor client), DTOs and validation (building on the backend `shared` module, ED-08), repositories/data layer, auth session and token handling, money and date formatting. Platform-specific pieces (Keychain/Keystore secure storage, etc.) via `expect`/`actual`.
@@ -257,7 +258,7 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Alternatives considered:** Trunk-based (feature → `master`) — simpler but gives no staging point between integration and production release.
 
 ## ED-19 — Repository layout
-- **Status:** Accepted · **Date:** 2026-11-14
+- **Status:** Accepted, amended by ED-48 · **Date:** 2026-11-14
 - **Context:** Initial owner-created layout had double-nested docs (`documentation/docs/`) while `AGENTS.md` and the handoff README referenced `docs/`; `.DS_Store` files were tracked; no `.gitignore`.
 - **Decision:**
   - Product and engineering docs live in root `docs/`; the original handoff zip is preserved, unchanged, in `docs/archive/`.
@@ -308,7 +309,7 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Rationale:** An explicit environment prevents a production deployment from silently using development defaults or loading sample data.
 
 ## ED-24 — Shared module starts JVM-only
-- **Status:** Accepted · **Date:** 2026-11-14
+- **Status:** Superseded by ED-48 · **Date:** 2026-11-14
 - **Decision:** `shared/` uses the Kotlin Multiplatform plugin with a JVM target only for now; it is consumed by the backend. iOS targets (`iosArm64`, `iosSimulatorArm64`) and the XCFramework build are added when the iOS project is set up. Android can consume the JVM target until an Android target is added (ED-16).
 - **Rationale:** Avoids downloading the Kotlin/Native toolchain and building iOS binaries on every backend build before any iOS code exists; adding targets later is a build change, not a restructuring.
 
@@ -607,6 +608,21 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Bookkeeping:** the deposit in the bank = dues entered per unit (ED-44) + owners' fees − refunds − provider fees. The report gives the bookkeeper the fee and refund amounts that make a deposit match; how the register records the processing cost is the bookkeeper's choice.
 - **Alternatives considered:** Storing payouts and fees in Seebrook — duplicates the provider's records with no current use. Stripe's downloadable payout reconciliation report — not provider-neutral and not matched to Seebrook's references. Estimating fees from published rates — the requirement is the actual fees.
 
+## ED-48 — iOS project setup: shared framework, Xcode project and development sign-in
+- **Status:** Accepted · **Date:** 2026-11-23 · **Decided by:** project owner (iOS version, bundle ID, development sign-in, on-device testing before the paid Apple program); engineering (the rest) · **Supersedes:** ED-24 · **Amends:** ED-15 (Swift interop), ED-19 (how `mobile-ios/` consumes `shared/`) · **Related:** ED-16, ED-17, ED-29
+- **Decision:**
+  - **Platform:** iOS 17 and later, iPhone only, portrait. Bundle ID `cc.seebrook.app`, named Seebrook (fixed once uploaded to TestFlight). Debug builds use `cc.seebrook.app.dev`, named Seebrook Dev, so they install beside the release app and the free Personal Team never claims the release ID.
+  - **Shared module targets (supersedes ED-24):** `shared/` adds `iosArm64` and `iosSimulatorArm64` and builds a static `SeebrookShared` framework. Xcode's first build phase runs `./gradlew :shared:embedAndSignAppleFrameworkForXcode`, so a Kotlin change is picked up by the next Xcode build; no prebuilt XCFramework is committed or copied (amends ED-19). Apple targets are skipped on Linux CI (`kotlin.native.ignoreDisabledTargets`): shared tests run on the JVM in CI and also on the iOS simulator in a local `./gradlew build`.
+  - **API client in `shared/`:** `SeebrookApi` (Ktor client on URLSession) sends requests and decodes the existing DTOs; nothing else (ED-17). It ignores unknown JSON fields, because installed apps outlive API changes, and reports failures as `ApiException(kind, code, status)` carrying the API's error code. The JVM target has no HTTP engine: the backend never calls its own API, and Android picks its engine with its own target. The backend's classpath gains the unused Ktor client core.
+  - **Swift interop (the tool ED-15 left open):** none for now. Kotlin `suspend` functions reach Swift as `async throws` natively, called from the main actor. Revisit SKIE when the app needs Kotlin Flows or sealed results.
+  - **Xcode project:** a hand-maintained `Seebrook.xcodeproj` whose `Seebrook/` folder is synchronized (files added there are compiled with no project edits). Build settings live in `Config/*.xcconfig`; each developer's signing team goes in an untracked `Config/Local.xcconfig`. Dead-code stripping is required to link the Kotlin framework. Swift 5 language mode, because Kotlin types are not `Sendable`.
+  - **Development sign-in (debug builds only):** the sign-in screen takes a server address and a token from `seebrook dev-token <email> --days <1-30>` (the new `--days` option; one hour by default). Scripted simulator runs can pass both as `SEEBROOK_SERVER_URL` and `SEEBROOK_DEV_TOKEN` launch variables. Only debug builds allow plain HTTP, and only to the local network (`NSAllowsLocalNetworking`). Release builds have HTTPS only and no development sign-in; their server address is a placeholder until hosting is chosen. A production server refuses development tokens (ED-29).
+  - **Session token:** kept in the Keychain on this device only (`AfterFirstUnlockThisDeviceOnly`), never in user defaults or logs. Signing out deletes it; an expired or refused token signs the user out with a message.
+  - **On-device testing before the paid Apple program (owner, 2026-11-23):** Xcode's free Personal Team runs debug builds on the owner's iPhone. Installs last 7 days. Sign in with Apple, push notifications, Apple Pay and universal links wait for the Apple Developer Program, which is joined for TestFlight.
+- **Rationale:** Direct integration keeps one build command and no stale framework copies. Native `async` interop avoids a compiler plugin tied to Kotlin releases. A synchronized folder keeps the project file small and stable without a project generator. Development tokens let the app be used on a phone before a Firebase project exists, with the same server checks as production.
+- **Alternatives considered:** XcodeGen or Tuist — another tool every developer installs. A prebuilt XCFramework or Swift package — a manual step after every Kotlin change. SKIE — not needed for the calls so far. Swift 6 strict concurrency — Kotlin objects cannot cross actors without unchecked wrappers. A server endpoint that issues development tokens — a new unauthenticated endpoint for a convenience the CLI already offers.
+- **Consequences:** Xcode builds run Gradle (the first build downloads Kotlin/Native and takes a few minutes). Xcode needs its iOS platform component installed (Xcode > Settings > Components) to list simulators and devices. Local `./gradlew build` on a Mac compiles the iOS targets and runs the shared tests on the simulator.
+
 ## Change log
 - 2026-11-13 — Created. Recorded ED-01–ED-12 and pending decisions.
 - 2026-11-13 — Added ED-13 (logical services in one deployable, service map, boundary rules) and ED-14 (action-style use cases). The owner's earlier service map was an illustrative example, not a decision.
@@ -634,3 +650,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-19 — M5 part 3: added ED-46 (reconciliation of unsettled payments through the webhook path; per-HOA automatic suspension during provider outages with automatic recovery; `onlinePayments` in the owner summary). Added the "Alert delivery" pending item; noted the Stripe restricted-key permissions.
 - 2026-11-19 — M5 part 4: added ED-47 (payout report: payouts by arrival day broken down into payments, refunds and the provider's actual fees, matched to Seebrook; read-only). Extended the Stripe restricted-key permissions.
 - 2026-11-23 — Apple Developer Program deferred to TestFlight by the owner; on-device testing uses a free Personal Team (pending item updated). Added `docs/OPEN_ITEMS.md`, a checklist of open items kept current with each change.
+- 2026-11-23 — M5 iOS setup: added ED-48 (iOS 17, bundle ID `cc.seebrook.app`, iOS targets and the `SeebrookShared` framework built from Xcode, API client, no Swift interop plugin, synchronized Xcode project, development-token sign-in in debug builds, `dev-token --days`). Supersedes ED-24; amends ED-15 and ED-19.

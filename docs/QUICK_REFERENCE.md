@@ -63,11 +63,24 @@ $APP help                       # every command
 
 ```bash
 INVITE=$($APP dev-invite "Unit 07" owner07@example.test | tail -1)
-TOKEN=$($APP dev-token owner07@example.test)
+TOKEN=$($APP dev-token owner07@example.test)      # add --days 7 for a token to use on a phone
 curl -s localhost:8088/v1/invitations/accept -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d "{\"token\":\"$INVITE\"}"
 curl -s localhost:8088/v1/me/properties -H "Authorization: Bearer $TOKEN"
 ```
+
+## iOS app
+
+```bash
+open mobile-ios/Seebrook.xcodeproj    # run the Seebrook scheme; the first build compiles shared/ (a few minutes)
+$APP dev-token owner07@example.test --days 7   # token to paste into Seebrook Dev (accept an invitation first)
+./gradlew :shared:allTests            # shared module tests on the JVM and the iOS simulator
+```
+
+- Signing: put your team ID in `mobile-ios/Config/Local.xcconfig` (copy the `.example`). Your free Personal Team works on your own iPhone; installs last 7 days.
+- Server address in the app: `http://localhost:8088` on the simulator; `http://<your-mac>.local:8088` on an iPhone on the same Wi-Fi.
+- Debug builds are "Seebrook Dev" (`cc.seebrook.app.dev`); release builds are "Seebrook" (`cc.seebrook.app`).
+- No simulators or devices listed? Install the iOS platform in Xcode > Settings > Components.
 
 ## Monthly finance import
 

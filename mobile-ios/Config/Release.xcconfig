@@ -1,0 +1,11 @@
+// TestFlight and App Store builds: HTTPS only, no development sign-in (ED-48).
+#include "Shared.xcconfig"
+
+PRODUCT_BUNDLE_IDENTIFIER = cc.seebrook.app
+INFOPLIST_KEY_CFBundleDisplayName = Seebrook
+SWIFT_OPTIMIZATION_LEVEL = -O
+SWIFT_COMPILATION_MODE = wholemodule
+DEBUG_INFORMATION_FORMAT = dwarf-with-dsym
+VALIDATE_PRODUCT = YES
+
+#include? "Local.xcconfig"

@@ -122,6 +122,14 @@ A synthetic example roster is in `server/app/src/main/resources/dev-fixtures/cha
 
 Run `seebrook help` for every command.
 
+### Run the iOS app (M5)
+
+Needs Xcode with its iOS platform installed (Xcode > Settings > Components) and JDK 21. Details in ED-48.
+
+1. Once: copy `mobile-ios/Config/Local.xcconfig.example` to `Local.xcconfig` and set your team ID (a free Personal Team works on your own iPhone).
+2. Open `mobile-ios/Seebrook.xcodeproj` and run the **Seebrook** scheme on a simulator or your iPhone. The first build compiles the Kotlin shared module (a few minutes).
+3. Sign in on the development screen: the server address (`http://localhost:8088` on the simulator, `http://<your-mac>.local:8088` on an iPhone on the same Wi-Fi) and a token from `$APP dev-token owner07@example.test --days 7`, after accepting an invitation as above.
+
 ## Repository layout
 
 ```
@@ -146,7 +154,7 @@ Run `seebrook help` for every command.
 └── .github/workflows/      CI/CD
 ```
 
-`shared/`, `server/` and `mobile-android/` form one Gradle build rooted at the repository root. `mobile-ios/` is an Xcode project that consumes `shared/` as an XCFramework. Folders are created as the milestones that need them are built.
+`shared/`, `server/` and `mobile-android/` form one Gradle build rooted at the repository root. `mobile-ios/` is an Xcode project that builds `shared/` as the `SeebrookShared` framework on each build (ED-48). Folders are created as the milestones that need them are built.
 
 ## Branching
 

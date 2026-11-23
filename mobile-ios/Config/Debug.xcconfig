@@ -1,0 +1,16 @@
+// Development builds: their own bundle ID (installs beside the release app, and keeps the free
+// Personal Team away from cc.seebrook.app), development-token sign-in and plain HTTP to servers
+// on the local network only (ED-48).
+#include "Shared.xcconfig"
+
+PRODUCT_BUNDLE_IDENTIFIER = cc.seebrook.app.dev
+INFOPLIST_KEY_CFBundleDisplayName = Seebrook Dev
+INFOPLIST_FILE = Config/Debug-Info.plist
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG $(inherited)
+SWIFT_OPTIMIZATION_LEVEL = -Onone
+GCC_OPTIMIZATION_LEVEL = 0
+DEBUG_INFORMATION_FORMAT = dwarf
+ONLY_ACTIVE_ARCH = YES
+ENABLE_TESTABILITY = YES
+
+#include? "Local.xcconfig"

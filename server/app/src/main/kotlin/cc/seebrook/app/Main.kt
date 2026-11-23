@@ -32,8 +32,9 @@ private const val USAGE = """Usage: seebrook <command>
   migrate                    Apply pending database migrations and exit.
   seed-dev                   Apply migrations and load synthetic Channel Harbor data (development/test only).
   dev-invite <unit> <email>  Issue an owner invitation for a synthetic unit and print its token (development/test only).
-  dev-token <email> [--unverified]
+  dev-token <email> [--unverified] [--days <1-30>]
                              Print a development ID token for <email> (development auth mode only).
+                             Valid for 1 hour, or --days for testing on a phone.
 
 Admin commands (audited; ED-31):
   bootstrap-root --email <email>
@@ -150,7 +151,7 @@ fun main(args: Array<String>) {
     when (command) {
         "serve", "migrate", "seed-dev", "run-jobs" -> if (operands.isNotEmpty()) usage()
         "dev-invite" -> if (operands.size != 2) usage()
-        "dev-token" -> if (operands.size !in 1..2 || (operands.size == 2 && operands[1] != "--unverified")) usage()
+        "dev-token" -> if (devTokenOptions(operands) == null) usage()
         in ADMIN_COMMANDS, in FINANCE_COMMANDS, in PAYMENT_COMMANDS -> {}
         "convert-register" -> {
             // Needs no configuration or database: it only reads the workbook and writes CSV files.
@@ -175,7 +176,8 @@ fun main(args: Array<String>) {
 
     // Needs no database.
     if (command == "dev-token") {
-        println(DevAuth.token(config.environment, config.auth, operands[0], emailVerified = operands.size == 1))
+        val (verified, validFor) = requireNotNull(devTokenOptions(operands))
+        println(DevAuth.token(config.environment, config.auth, operands[0], verified, validFor))
         return
     }
 
@@ -313,4 +315,20 @@ fun main(args: Array<String>) {
 private fun migrate(db: Database) {
     val result = Migrations.migrate(db.dataSource)
     log.info("Migrations applied: {}; schema version: {}", result.applied, result.currentVersion ?: "unchanged")
+}
+
+/** `dev-token <email> [--unverified] [--days <1-30>]`: (email verified, validity), or null when malformed. */
+internal fun devTokenOptions(operands: List<String>): Pair<Boolean, Duration>? {
+    if (operands.isEmpty() || operands[0].startsWith("--")) return null
+    var verified = true
+    var validFor = Duration.ofHours(1)
+    val rest = operands.drop(1).iterator()
+    while (rest.hasNext()) {
+        when (rest.next()) {
+            "--unverified" -> verified = false
+            "--days" -> validFor = Duration.ofDays(rest.takeIf { it.hasNext() }?.next()?.toLongOrNull()?.takeIf { it in 1..30 } ?: return null)
+            else -> return null
+        }
+    }
+    return verified to validFor
 }

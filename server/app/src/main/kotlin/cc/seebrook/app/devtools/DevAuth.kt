@@ -6,6 +6,7 @@ import cc.seebrook.platform.config.AuthConfig
 import cc.seebrook.platform.config.Environment
 import cc.seebrook.platform.auth.DevTokens
 import cc.seebrook.platform.db.Database
+import java.time.Duration
 import cc.seebrook.db.generated.property.Tables.PROPERTY_ as PROPERTY
 
 /**
@@ -27,9 +28,9 @@ object DevAuth {
     }
 
     /** Mints a development ID token for [email]; only a server in development auth mode accepts it. */
-    fun token(environment: Environment, auth: AuthConfig, email: String, emailVerified: Boolean): String {
+    fun token(environment: Environment, auth: AuthConfig, email: String, emailVerified: Boolean, validFor: Duration = Duration.ofHours(1)): String {
         requireNonProduction(environment, "dev-token")
         check(auth is AuthConfig.Development) { "dev-token requires SEEBROOK_AUTH_MODE=development" }
-        return DevTokens.mint(auth.projectId, auth.secret.toByteArray(), email, emailVerified)
+        return DevTokens.mint(auth.projectId, auth.secret.toByteArray(), email, emailVerified, validFor)
     }
 }

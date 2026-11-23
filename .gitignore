@@ -42,3 +42,6 @@ GoogleService-Info.plist
 /data/
 *.real.csv
 *.real.xlsx
+
+# iOS signing team, per developer
+mobile-ios/Config/Local.xcconfig

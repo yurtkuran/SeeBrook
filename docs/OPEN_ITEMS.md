@@ -24,7 +24,6 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 ## Decisions pending
 
-- [ ] **iOS details**: lowest supported version (recommended iOS 17), app name and bundle ID (proposed `cc.seebrook.app`; fixed after the first TestFlight upload), development-token sign-in in debug builds (recommended).
 - [ ] **Account deletion**: proposed to remove identity and contact details and keep the ledger and audit history. Needs owner approval and a legal check. *Before App Store submission.*
 - [ ] **Privacy policy and terms**: who writes and publishes them (Seebrook or the HOA). *Before App Store submission.*
 - [ ] **Android owners in the pilot**: start with iOS owners only, or wait for Android. *Before M7.*
@@ -32,7 +31,7 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 ## Engineering
 
-- [ ] **M5 iOS app**: shared module and Xcode setup → sign-in → properties → documents → balance and history → checkout.
+- [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ (in review) → sign-in → properties → documents → balance and history → checkout.
 - [ ] **Backend for the app**: push device registration, owner profile edits, account deletion (after the decision).
 - [ ] **M6**: recurring payment plans, cancelling a departing owner's recurring charges at transfer, alert delivery.
 - [ ] **M7 pilot**: production setup, backup restore drill, security review, owner onboarding.
@@ -40,10 +39,12 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 ## In review
 
-- PR #25: this checklist.
+- iOS project setup (ED-48).
 
 ## Recently closed
 
+- 2026-11-23: iOS details decided: iOS 17, `cc.seebrook.app`, development-token sign-in in debug builds (ED-48).
+- 2026-11-23: Open items checklist added (PR #25).
 - 2026-11-23: Payout report merged (ED-47, PR #24).
 - 2026-11-23: Apple Developer Program deferred to TestFlight; on-device testing uses a free Personal Team.
 - 2026-11-19: Payment reconciliation and outage handling (ED-46, PR #23).

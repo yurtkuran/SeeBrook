@@ -1,0 +1,33 @@
+// Build settings for both configurations (ED-48). Signing team: copy Local.xcconfig.example to
+// Local.xcconfig (not committed) and set DEVELOPMENT_TEAM, rather than choosing it in Xcode.
+PRODUCT_NAME = Seebrook
+SDKROOT = iphoneos
+SUPPORTED_PLATFORMS = iphoneos iphonesimulator
+SUPPORTS_MACCATALYST = NO
+// Simulators run on Apple silicon only; shared/ builds no x86_64 simulator target.
+ARCHS[sdk=iphonesimulator*] = arm64
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
+TARGETED_DEVICE_FAMILY = 1
+SWIFT_VERSION = 5.0
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
+
+GENERATE_INFOPLIST_FILE = YES
+INFOPLIST_KEY_UILaunchScreen_Generation = YES
+INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES
+INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait
+INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
+ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor
+
+CODE_SIGN_STYLE = Automatic
+ENABLE_PREVIEWS = YES
+SWIFT_EMIT_LOC_STRINGS = YES
+LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks
+// Also required to link the Kotlin framework: it drops unused platform wrappers.
+DEAD_CODE_STRIPPING = YES
+
+// The Kotlin shared module, built by the "Build shared Kotlin framework" phase (Gradle needs to run outside the script sandbox).
+ENABLE_USER_SCRIPT_SANDBOXING = NO
+FRAMEWORK_SEARCH_PATHS = $(inherited) $(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)
+OTHER_LDFLAGS = $(inherited) -framework SeebrookShared

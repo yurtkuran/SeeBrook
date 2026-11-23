@@ -78,7 +78,7 @@ This complements — and never overrides — the approved product constraints in
 | Alert delivery | With the hosting decision | Payment outages and reconciliation mismatches are logged at ERROR (outage start prefixed `ALERT:`) and audited (ED-46). Route these log lines to email or a pager once hosting and log collection are chosen |
 | Card fee for Channel Harbor | Before card payments are enabled for real | Policy set by owner (ED-43): owner pays the card fee, HOA absorbs ACH, checks carry an HOA convenience fee. Owner confirms the card surcharge is allowed (state law, card network rules, Stripe's requirements) and sets its amount; until then the card fee stays $0 or cards stay off |
 | Pilot access for Android owners | Before M7 | iOS ships first (ED-16). Decide whether the pilot starts with iOS owners only or waits for Android — user-facing, owner to decide |
-| Apple / Google developer accounts | Before first TestFlight build | Apple Developer Program ($99/yr) and Google Play ($25 one-time), ideally under an organization |
+| Apple / Google developer accounts | Before first TestFlight build | Apple Developer Program ($99/yr) and Google Play ($25 one-time), ideally under an organization. Owner decision 2026-11-23: join Apple's program only when ready for TestFlight; until then the app runs on the owner's iPhone through Xcode's free Personal Team (7-day installs; no Sign in with Apple, push, Apple Pay or universal links) |
 
 ---
 
@@ -633,3 +633,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-19 — M5 part 2: added ED-45 (payment receipts and notices by email; refunds, failed refunds and disputes as append-only adjustments with linked compensating ledger entries; exported and matched like payments). Updated the Stripe setup pending item with the webhook events to enable.
 - 2026-11-19 — M5 part 3: added ED-46 (reconciliation of unsettled payments through the webhook path; per-HOA automatic suspension during provider outages with automatic recovery; `onlinePayments` in the owner summary). Added the "Alert delivery" pending item; noted the Stripe restricted-key permissions.
 - 2026-11-19 — M5 part 4: added ED-47 (payout report: payouts by arrival day broken down into payments, refunds and the provider's actual fees, matched to Seebrook; read-only). Extended the Stripe restricted-key permissions.
+- 2026-11-23 — Apple Developer Program deferred to TestFlight by the owner; on-device testing uses a free Personal Team (pending item updated). Added `docs/OPEN_ITEMS.md`, a checklist of open items kept current with each change.

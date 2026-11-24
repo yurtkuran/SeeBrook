@@ -6,6 +6,7 @@ import cc.seebrook.db.generated.identity.Tables.USER_ACCOUNT
 import cc.seebrook.platform.auth.VerifiedIdentity
 import cc.seebrook.platform.db.Database
 import cc.seebrook.property.Ownerships
+import cc.seebrook.shared.client.InvitationCode
 import org.jooq.DSLContext
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -46,14 +47,13 @@ object EmailAddress {
  */
 internal object InvitationTokens {
     private val random = SecureRandom()
-    private val format = Regex("^[A-Za-z0-9_-]{43}$")
 
     fun generate(): String = ByteArray(32).also(random::nextBytes)
         .let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
 
     /** Null for anything that cannot be a token we issued, without touching the database. */
     fun hashOrNull(token: String): String? =
-        token.trim().takeIf(format::matches)
+        token.trim().takeIf(InvitationCode::isWellFormed)
             ?.let { HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(it.toByteArray())) }
 }
 

@@ -6,6 +6,7 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
 import kotlinx.io.IOException
 import kotlinx.coroutines.test.runTest
@@ -16,12 +17,14 @@ import kotlin.test.assertNull
 
 class SeebrookApiTest {
     private val requests = mutableListOf<Pair<String, String?>>()
+    private val bodies = mutableListOf<String>()
 
     private fun api(status: HttpStatusCode = HttpStatusCode.OK, body: String) =
         SeebrookApi(
             "http://seebrook.test/",
             MockEngine { request ->
                 requests += request.url.toString() to request.headers[HttpHeaders.Authorization]
+                (request.body as? TextContent)?.let { bodies += it.text }
                 respond(body, status, headersOf(HttpHeaders.ContentType, "application/json"))
             },
         )
@@ -70,5 +73,17 @@ class SeebrookApiTest {
         val e = assertFailsWith<ApiException> { proxy.me() }
         assertEquals(ApiException.Kind.SERVER, e.kind)
         assertNull(e.code)
+    }
+
+    @Test
+    fun acceptsAnInvitation() = runTest {
+        val api = api(body = """{"propertyId":"p1"}""").apply { idToken = "tok" }
+        assertEquals("p1", api.acceptInvitation("code").propertyId)
+        assertEquals(listOf<Pair<String, String?>>("http://seebrook.test/v1/invitations/accept" to "Bearer tok"), requests)
+        assertEquals(listOf("""{"token":"code"}"""), bodies)
+
+        val expired = api(HttpStatusCode.Gone, """{"error":"invitation_expired"}""").apply { idToken = "tok" }
+        val e = assertFailsWith<ApiException> { expired.acceptInvitation("code") }
+        assertEquals(ApiException.Kind.REJECTED to "invitation_expired", e.kind to e.code)
     }
 }

@@ -5,6 +5,7 @@ import SeebrookShared
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     let account: AppModel.Account
+    @State private var addingProperty = false
 
     var body: some View {
         NavigationStack {
@@ -30,7 +31,15 @@ struct HomeView: View {
             .navigationTitle("Seebrook")
             .refreshable { await model.refresh() }
             .toolbar {
-                Button("Sign out") { model.signOut() }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Sign out") { model.signOut() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Add property", systemImage: "plus") { addingProperty = true }
+                }
+            }
+            .sheet(isPresented: $addingProperty) {
+                InvitationView(firstProperty: false)
             }
         }
     }

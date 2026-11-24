@@ -62,6 +62,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-46 | Payment reconciliation with the provider; automatic HOA-isolated suspension during provider outages | Accepted | 2026-11-19 |
 | ED-47 | Payout report: each bank deposit broken down into payments, refunds and the provider's actual fees, matched to Seebrook | Accepted | 2026-11-19 |
 | ED-48 | iOS project setup: shared framework, Xcode project, development sign-in; iOS 17, `cc.seebrook.app` | Accepted | 2026-11-23 |
+| ED-49 | Accepting invitations in the iOS app by code or pasted link; invitation code format shared with the server (X-01) | Accepted | 2026-11-23 |
 
 ## Pending decisions
 
@@ -623,6 +624,16 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Alternatives considered:** XcodeGen or Tuist — another tool every developer installs. A prebuilt XCFramework or Swift package — a manual step after every Kotlin change. SKIE — not needed for the calls so far. Swift 6 strict concurrency — Kotlin objects cannot cross actors without unchecked wrappers. A server endpoint that issues development tokens — a new unauthenticated endpoint for a convenience the CLI already offers.
 - **Consequences:** Xcode builds run Gradle (the first build downloads Kotlin/Native and takes a few minutes). Xcode needs its iOS platform component installed (Xcode > Settings > Components) to list simulators and devices. Local `./gradlew build` on a Mac compiles the iOS targets and runs the shared tests on the simulator.
 
+## ED-49 — Accepting invitations in the iOS app by code
+- **Status:** Accepted · **Date:** 2026-11-23 · **Decided by:** engineering · **Related:** ED-17 (X-01), ED-29, ED-36, ED-48
+- **Context:** The invitation email (ED-36) has a link to `https://seebrook.cc/invite#token=…` and the code itself. Opening the app from that link needs universal links, which wait for the Apple Developer Program (ED-48). A signed-in owner who has not accepted an invitation gets `403 not_registered` from every owner API.
+- **Decision:**
+  - **First sign-in:** when `/v1/me` answers `not_registered`, the app keeps the session and shows the invitation screen instead of signing out. Accepting links the property and opens the home screen; the owner can also sign out from there.
+  - **More properties:** a signed-in owner adds another property from the home screen with the same screen.
+  - **Input:** the owner pastes the code or the whole link; `InvitationCode.fromInput` in `shared/` finds the code. Its format check (`InvitationCode.isWellFormed`) is the one the server uses before looking up a token, so the two cannot drift (exception X-01). Whether an invitation is valid, expired, used or for another email is decided only by the server, and each of its error codes has a message in the app.
+  - **Universal links:** when the paid program is in place, the email link opens the app and fills in the code; the invitation screen stays as the fallback the email already describes.
+- **Alternatives considered:** A custom URL scheme (`seebrook://`) — the email would need a second link, and any app can claim a scheme. Signing out on `not_registered` — the owner could never get past sign-in.
+
 ## Change log
 - 2026-11-13 — Created. Recorded ED-01–ED-12 and pending decisions.
 - 2026-11-13 — Added ED-13 (logical services in one deployable, service map, boundary rules) and ED-14 (action-style use cases). The owner's earlier service map was an illustrative example, not a decision.
@@ -651,3 +662,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-19 — M5 part 4: added ED-47 (payout report: payouts by arrival day broken down into payments, refunds and the provider's actual fees, matched to Seebrook; read-only). Extended the Stripe restricted-key permissions.
 - 2026-11-23 — Apple Developer Program deferred to TestFlight by the owner; on-device testing uses a free Personal Team (pending item updated). Added `docs/OPEN_ITEMS.md`, a checklist of open items kept current with each change.
 - 2026-11-23 — M5 iOS setup: added ED-48 (iOS 17, bundle ID `cc.seebrook.app`, iOS targets and the `SeebrookShared` framework built from Xcode, API client, no Swift interop plugin, synchronized Xcode project, development-token sign-in in debug builds, `dev-token --days`). Supersedes ED-24; amends ED-15 and ED-19.
+- 2026-11-23 — M5 iOS: added ED-49 (invitation screen on first sign-in and for adding a property; code or link accepted; the server reuses the shared invitation code format check under X-01).

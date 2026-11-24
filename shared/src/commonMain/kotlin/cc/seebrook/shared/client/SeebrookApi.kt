@@ -1,5 +1,7 @@
 package cc.seebrook.shared.client
 
+import cc.seebrook.shared.api.AcceptInvitationRequest
+import cc.seebrook.shared.api.AcceptInvitationResponse
 import cc.seebrook.shared.api.ErrorResponse
 import cc.seebrook.shared.api.HealthResponse
 import cc.seebrook.shared.api.MeResponse
@@ -12,7 +14,11 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
@@ -48,6 +54,21 @@ class SeebrookApi internal constructor(baseUrl: String, engine: HttpClientEngine
 
     @Throws(ApiException::class, CancellationException::class)
     suspend fun me(): MeResponse = call { http.get("$base/v1/me", it) }
+
+    /**
+     * Accepts an invitation for the signed-in user, which registers them on their first one. Use
+     * [InvitationCode.fromInput] on what the owner entered. Fails with `invitation_not_found`,
+     * `invitation_expired`, `invitation_no_longer_valid`, `email_not_verified`,
+     * `invitation_email_mismatch` or `account_disabled`.
+     */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun acceptInvitation(code: String): AcceptInvitationResponse = call {
+        http.post("$base/v1/invitations/accept") {
+            it()
+            contentType(ContentType.Application.Json)
+            setBody(AcceptInvitationRequest(code))
+        }
+    }
 
     /** The properties the user currently owns. */
     @Throws(ApiException::class, CancellationException::class)

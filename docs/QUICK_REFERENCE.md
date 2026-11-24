@@ -79,6 +79,7 @@ $APP dev-token owner07@example.test --days 7   # token to paste into Seebrook De
 
 - Signing: put your team ID in `mobile-ios/Config/Local.xcconfig` (copy the `.example`). Your free Personal Team works on your own iPhone; installs last 7 days.
 - Server address in the app: `http://localhost:8088` on the simulator; `http://<your-mac>.local:8088` on an iPhone on the same Wi-Fi.
+- A new owner signs in, then pastes the invitation code or link (from `$APP dev-invite "Unit 08" owner08@example.test`, or the email in Mailpit) on the Invitation screen. **+** on the home screen adds another property.
 - Debug builds are "Seebrook Dev" (`cc.seebrook.app.dev`); release builds are "Seebrook" (`cc.seebrook.app`).
 - No simulators or devices listed? Install the iOS platform in Xcode > Settings > Components.
 

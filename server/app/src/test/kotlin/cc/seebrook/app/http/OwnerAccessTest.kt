@@ -90,8 +90,11 @@ class OwnerAccessTest {
         val mine = http.myProperties(owner1)
         mine.map { it.unitLabel } shouldBe listOf("Unit 01")
         mine.single().id shouldBe unit01.propertyId.toString()
+        mine.single().hoaName shouldBe "Channel Harbor"
 
-        http.get("/v1/properties/${unit01.propertyId}") { bearerAuth(owner1) }.status shouldBe HttpStatusCode.OK
+        val own = http.get("/v1/properties/${unit01.propertyId}") { bearerAuth(owner1) }
+        own.status shouldBe HttpStatusCode.OK
+        own.body<PropertyResponse>().hoaName shouldBe "Channel Harbor"
         // Another owner's unit in the same HOA looks exactly like a missing one.
         val other = http.get("/v1/properties/${unit02.propertyId}") { bearerAuth(owner1) }
         other.status shouldBe HttpStatusCode.NotFound

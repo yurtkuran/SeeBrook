@@ -64,6 +64,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-48 | iOS project setup: shared framework, Xcode project, development sign-in; iOS 17, `cc.seebrook.app` | Accepted | 2026-11-23 |
 | ED-49 | Accepting invitations in the iOS app by code or pasted link; invitation code format shared with the server (X-01) | Accepted | 2026-11-23 |
 | ED-50 | Firebase sign-in in the iOS app: email and password, Google; verification before invitations; config files kept out of git | Accepted | 2026-11-24 |
+| ED-51 | Properties in the iOS app: Home and Account tabs, a selected property remembered on the device, HOA name in property responses | Accepted | 2026-11-24 |
 
 ## Pending decisions
 
@@ -650,6 +651,18 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Verification:** against the development project, a real ID token is accepted by the local server (`403 not_registered` for a new account) and a tampered one refused (`401`); the throwaway account was deleted.
 - **Alternatives considered:** FirebaseUI's prebuilt screens — less control over wording and the invitation flow. Accepting development tokens and Firebase tokens at once locally — two verifiers in the security path for a convenience; switching `dev.sh` modes is enough.
 
+## ED-51 — Properties in the iOS app
+- **Status:** Accepted · **Date:** 2026-11-24 · **Decided by:** engineering, following the owner's Stitch "Home Dashboard" design · **Related:** ED-17, ED-29, ED-48, ED-49
+- **Decision:**
+  - **Tabs:** the signed-in app has **Home** and **Account** tabs. Payments and Documents join, as in the design, when their milestones land, so the app never shows an empty tab.
+  - **Home:** the HOA name and "Home" at the top, a greeting with the owner's name (or email) and a unit chip, and a card with the selected property's unit, address and HOA. The card's menu switches property (when there are several) and adds one by invitation. The design's balance and payment card comes with "balance and history"; its photo, bell and avatar wait for data or features behind them.
+  - **Account:** the signed-in email, the linked properties (tapping one selects it), **Add a property**, and **Sign out**.
+  - **Selected property:** remembered on the device (`UserDefaults`), cleared at sign-out, and set to a newly accepted property. It is only a preference: when it is missing or no longer linked, the app shows the first property, and the server still checks every request (GA-06). No ED-17 exception: choosing what to show is presentation.
+  - **HOA name in property responses:** `PropertyResponse` gains `hoaName`, filled by the app layer from the tenant service (`FindHoa.byIds`), so the property service still reads only its own schema (ED-13, ED-21). Both `/v1/me/properties` and `/v1/properties/{id}` return it.
+  - **Brand color:** the app's accent color becomes the logo blue (`#1E40AF`), matching the sign-in screen (ED-50) and the design.
+- **Verification:** `OwnerAccessTest` checks `hoaName` on both endpoints. In the simulator, an owner with two units sees the first, and a remembered selection shows the second.
+- **Alternatives considered:** a property list as the home screen — the design centres on one property, and the pilot owners have one unit each. Joining `tenant.hoa` in the property query — reads another service's schema.
+
 ## Change log
 - 2026-11-13 — Created. Recorded ED-01–ED-12 and pending decisions.
 - 2026-11-13 — Added ED-13 (logical services in one deployable, service map, boundary rules) and ED-14 (action-style use cases). The owner's earlier service map was an illustrative example, not a decision.
@@ -680,3 +693,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-23 — M5 iOS setup: added ED-48 (iOS 17, bundle ID `cc.seebrook.app`, iOS targets and the `SeebrookShared` framework built from Xcode, API client, no Swift interop plugin, synchronized Xcode project, development-token sign-in in debug builds, `dev-token --days`). Supersedes ED-24; amends ED-15 and ED-19.
 - 2026-11-23 — M5 iOS: added ED-49 (invitation screen on first sign-in and for adding a property; code or link accepted; the server reuses the shared invitation code format check under X-01).
 - 2026-11-24 — M5 iOS: added ED-50 (Firebase email/password and Google sign-in, email verification screen, per-configuration Firebase files out of git, `scripts/dev.sh firebase`, Firebase 12.19.3 until Xcode 26.2); sign-in screen built from the owner's Stitch design.
+- 2026-11-24 — M5 iOS: added ED-51 (Home and Account tabs, selected property remembered on the device, `hoaName` in property responses, accent color set to the brand blue).

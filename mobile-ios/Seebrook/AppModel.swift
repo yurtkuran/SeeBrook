@@ -11,6 +11,8 @@ final class AppModel {
         case starting
         case signedOut(message: String?)
         case loading
+        /// Signed in, but not linked to any property yet: the owner enters their invitation.
+        case needsInvitation
         case signedIn(Account)
     }
 
@@ -52,8 +54,29 @@ final class AppModel {
             let account = try await load()
             TokenStore.save(token)
             phase = .signedIn(account)
+        } catch where Self.apiError(error)?.code == "not_registered" {
+            TokenStore.save(token)
+            phase = .needsInvitation
         } catch {
             signOut(message: Self.message(for: error))
+        }
+    }
+
+    /// Accepts the invitation in [input] (the code or the whole link from the email). Returns a
+    /// message to show when it can't, or nil once the property is linked.
+    func acceptInvitation(_ input: String) async -> String? {
+        guard let code = InvitationCode.shared.fromInput(input: input) else {
+            return "That doesn't look like an invitation code. Copy the code or the link from your invitation email."
+        }
+        do {
+            _ = try await api.acceptInvitation(code: code)
+            phase = .signedIn(try await load())
+            return nil
+        } catch where Self.apiError(error)?.kind == .unauthorized {
+            signOut(message: Self.message(for: error))
+            return nil
+        } catch {
+            return Self.message(for: error)
         }
     }
 
@@ -115,6 +138,16 @@ final class AppModel {
             return "Your sign-in has expired. Please sign in again."
         case (.forbidden, "not_registered"):
             return "This account isn't linked to a property yet. Accept your invitation first."
+        case (_, "invitation_not_found"):
+            return "We couldn't find that invitation. Check the code, or ask your HOA to send a new invitation."
+        case (_, "invitation_expired"):
+            return "This invitation has expired. Ask your HOA to send a new one."
+        case (_, "invitation_no_longer_valid"):
+            return "This invitation was already used or replaced by a newer one. Use the latest invitation email, or ask your HOA for a new one."
+        case (_, "invitation_email_mismatch"):
+            return "This invitation was sent to a different email address. Sign in with the address the invitation was sent to."
+        case (_, "email_not_verified"):
+            return "Please verify your email address first, then try again."
         case (.forbidden, "account_disabled"):
             return "This account has been disabled. Please contact your HOA."
         default:

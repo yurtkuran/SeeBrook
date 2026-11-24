@@ -31,7 +31,7 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 ## Engineering
 
-- [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ (in review) → sign-in → properties → documents → balance and history → checkout.
+- [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ → sign-in (invitations in review; Firebase sign-in waits for the Firebase project) → properties → documents → balance and history → checkout.
 - [ ] **Backend for the app**: push device registration, owner profile edits, account deletion (after the decision).
 - [ ] **M6**: recurring payment plans, cancelling a departing owner's recurring charges at transfer, alert delivery.
 - [ ] **M7 pilot**: production setup, backup restore drill, security review, owner onboarding.
@@ -39,10 +39,11 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 ## In review
 
-- iOS project setup (ED-48).
+- Accepting invitations in the iOS app (ED-49).
 
 ## Recently closed
 
+- 2026-11-23: iOS project setup merged (ED-48, PR #26).
 - 2026-11-23: iOS details decided: iOS 17, `cc.seebrook.app`, development-token sign-in in debug builds (ED-48).
 - 2026-11-23: Open items checklist added (PR #25).
 - 2026-11-23: Payout report merged (ED-47, PR #24).

@@ -9,6 +9,7 @@ dependencies {
     api(project(":server:platform"))
     implementation(project(":server:tenant"))
     implementation(project(":server:property"))
+    implementation(project(":shared"))
     implementation(libs.commons.csv)
 
     testImplementation(platform(libs.junit.bom))

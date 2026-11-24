@@ -9,6 +9,8 @@ struct RootView: View {
             ProgressView()
         case .signedOut(let message):
             SignInView(message: message)
+        case .needsInvitation:
+            InvitationView(firstProperty: true)
         case .signedIn(let account):
             HomeView(account: account)
         }

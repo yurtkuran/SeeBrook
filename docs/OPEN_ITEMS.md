@@ -1,7 +1,7 @@
 ---
 title: Seebrook open items
 tags: [seebrook, status]
-updated: 2026-11-23
+updated: 2026-11-24
 ---
 
 # Open items
@@ -11,7 +11,8 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 ## Owner actions
 
 - [ ] **Legal entity**: decide who owns the accounts, domain, Firebase project and Stripe relationship. *Before any paid or production account.*
-- [ ] **Firebase development project** (free): needed for real email/Google sign-in on the phone. Development tokens stand in until then.
+- [ ] **Firebase file with Google**: download `GoogleService-Info.plist` again (Google sign-in was enabled after the first download) into `mobile-ios/Config/Firebase/Debug/`.
+- [ ] **Xcode 26.2**: then upgrade Firebase to 13 (ED-50).
 - [ ] **Stripe test-mode account** with Connect and a test connected account (free): needed for checkout testing on the phone.
 - [ ] **Stripe live setup**: platform account, Channel Harbor's connected account, webhook with the 8 events, restricted key. *Before the first real payment.*
 - [ ] **Card surcharge**: confirm it is allowed and set the amount. *Before real card payments; until then the card fee is $0 or cards are off.*
@@ -31,7 +32,7 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 ## Engineering
 
-- [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ → sign-in (invitations in review; Firebase sign-in waits for the Firebase project) → properties → documents → balance and history → checkout.
+- [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ → ~~invitations~~ → Firebase sign-in (in review; Sign in with Apple after the paid program) → properties → documents → balance and history → checkout.
 - [ ] **Backend for the app**: push device registration, owner profile edits, account deletion (after the decision).
 - [ ] **M6**: recurring payment plans, cancelling a departing owner's recurring charges at transfer, alert delivery.
 - [ ] **M7 pilot**: production setup, backup restore drill, security review, owner onboarding.
@@ -39,10 +40,12 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 ## In review
 
-- Accepting invitations in the iOS app (ED-49).
+- Firebase sign-in in the iOS app (ED-50).
 
 ## Recently closed
 
+- 2026-11-24: Development Firebase project created (`seebrook-67b03`).
+- 2026-11-23: Accepting invitations in the iOS app merged (ED-49, PR #27).
 - 2026-11-23: iOS project setup merged (ED-48, PR #26).
 - 2026-11-23: iOS details decided: iOS 17, `cc.seebrook.app`, development-token sign-in in debug builds (ED-48).
 - 2026-11-23: Open items checklist added (PR #25).

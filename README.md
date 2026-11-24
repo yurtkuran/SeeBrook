@@ -128,7 +128,7 @@ Needs Xcode with its iOS platform installed (Xcode > Settings > Components) and 
 
 1. Once: copy `mobile-ios/Config/Local.xcconfig.example` to `Local.xcconfig` and set your team ID (a free Personal Team works on your own iPhone).
 2. Open `mobile-ios/Seebrook.xcodeproj` and run the **Seebrook** scheme on a simulator or your iPhone. The first build compiles the Kotlin shared module (a few minutes).
-3. Sign in on the development screen: the server address (`http://localhost:8088` on the simulator, `http://<your-mac>.local:8088` on an iPhone on the same Wi-Fi) and a token from `$APP dev-token owner07@example.test --days 7`, after accepting an invitation as above.
+3. Sign in: with `scripts/dev.sh firebase` running and the development Firebase file in `mobile-ios/Config/Firebase/Debug/` (ED-50), create an account or sign in with Google. Or, with plain `scripts/dev.sh`, tap **Developer** and enter the server address (`http://localhost:8088` on the simulator, `http://<your-mac>.local:8088` on an iPhone on the same Wi-Fi) and a token from `$APP dev-token owner07@example.test --days 7`.
 
 ## Repository layout
 

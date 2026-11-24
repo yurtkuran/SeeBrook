@@ -63,6 +63,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-47 | Payout report: each bank deposit broken down into payments, refunds and the provider's actual fees, matched to Seebrook | Accepted | 2026-11-19 |
 | ED-48 | iOS project setup: shared framework, Xcode project, development sign-in; iOS 17, `cc.seebrook.app` | Accepted | 2026-11-23 |
 | ED-49 | Accepting invitations in the iOS app by code or pasted link; invitation code format shared with the server (X-01) | Accepted | 2026-11-23 |
+| ED-50 | Firebase sign-in in the iOS app: email and password, Google; verification before invitations; config files kept out of git | Accepted | 2026-11-24 |
 
 ## Pending decisions
 
@@ -634,6 +635,21 @@ Each exception must state what it is, why it cannot live solely in the backend, 
   - **Universal links:** when the paid program is in place, the email link opens the app and fills in the code; the invitation screen stays as the fallback the email already describes.
 - **Alternatives considered:** A custom URL scheme (`seebrook://`) — the email would need a second link, and any app can claim a scheme. Signing out on `not_registered` — the owner could never get past sign-in.
 
+## ED-50 — Firebase sign-in in the iOS app
+- **Status:** Accepted · **Date:** 2026-11-24 · **Decided by:** engineering; owner created the development Firebase project · **Related:** ED-28, ED-29, ED-48, ED-49, X-04
+- **Decision:**
+  - **Projects:** the development Firebase project (created by the owner, 2026-11-24) serves debug builds (`cc.seebrook.app.dev`). The production project, owned by the pending legal entity, will serve release builds (`cc.seebrook.app`).
+  - **Configuration:** each configuration's `GoogleService-Info.plist` lives at `mobile-ios/Config/Firebase/<Debug|Release>/`, kept out of git. A build phase copies it into the app and registers Google's return URL scheme from its `REVERSED_CLIENT_ID`. A build without the file still compiles, and its sign-in screen says sign-in isn't set up. The backend learns the project ID from the same file: `scripts/dev.sh firebase` (or `SEEBROOK_FIREBASE_PROJECT_ID`), so no project ID is in the repo.
+  - **Invitation only, no open sign-up (owner, 2026-11-24):** the sign-in screen offers sign in (email and password, or Google) and password reset, and **Have an invitation? Set up your account**. Setting up asks for the invitation code or link first, then an email and password (a verification email is sent) or Google; once signed in and verified, the app accepts that invitation itself and falls back to the invitation screen, pre-filled, with the server's reason if it can't. The server's rule is unchanged: without an accepted invitation an account sees nothing (ED-29); Firebase itself still allows sign-ups, which only blocking sign-ups in Identity Platform would prevent.
+  - **Screen design (owner, 2026-11-24):** the sign-in and set-up screens follow the owner's "Seebrook Mobile Login" design in Stitch: the Seebrook logo and tagline, a white card with labelled fields (12-point corners) and separate **Sign In** and Google buttons, **Forgot password?** below the card, the invitation link centered at the bottom, and a faded harbor photo behind. Logo, photo and the brand blue (`#1E40AF`) are app assets. The screen stays in light mode for now. The design's **Sign in with Apple** button is left out until Apple sign-in is added (below).
+  - **Methods now:** email and password, and Google. Sign in with Apple waits for the Apple Developer Program (ED-48); the App Store requires it alongside Google before submission.
+  - **Verified email first:** a password account whose email is not verified sees a "Verify your email" screen (continue, resend, sign out) before the invitation screen, because accepting an invitation needs a verified email (ED-29). The server still decides; the app only checks Firebase's flag to choose the screen.
+  - **Tokens (X-04):** Firebase keeps the user in the Keychain and refreshes the ID token; the app asks Firebase for the current token before each API call and never stores it itself. Development tokens (debug builds) stay available from a **Developer** sheet that also holds the server address; they work only against a server in development auth mode, and the local server runs one mode at a time.
+  - **Messages:** Firebase errors map to plain messages; the password-reset answer is the same whether or not an account exists, so the screen does not reveal accounts. Closing the Google sheet shows no error.
+  - **SDKs:** Firebase iOS SDK 12.19.3 (only FirebaseAuth linked) and GoogleSignIn 10.1.0, by Swift Package Manager, pinned exactly; `Package.resolved` is committed. Firebase 13 needs Xcode 26.2: upgrade both together.
+- **Verification:** against the development project, a real ID token is accepted by the local server (`403 not_registered` for a new account) and a tampered one refused (`401`); the throwaway account was deleted.
+- **Alternatives considered:** FirebaseUI's prebuilt screens — less control over wording and the invitation flow. Accepting development tokens and Firebase tokens at once locally — two verifiers in the security path for a convenience; switching `dev.sh` modes is enough.
+
 ## Change log
 - 2026-11-13 — Created. Recorded ED-01–ED-12 and pending decisions.
 - 2026-11-13 — Added ED-13 (logical services in one deployable, service map, boundary rules) and ED-14 (action-style use cases). The owner's earlier service map was an illustrative example, not a decision.
@@ -663,3 +679,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-23 — Apple Developer Program deferred to TestFlight by the owner; on-device testing uses a free Personal Team (pending item updated). Added `docs/OPEN_ITEMS.md`, a checklist of open items kept current with each change.
 - 2026-11-23 — M5 iOS setup: added ED-48 (iOS 17, bundle ID `cc.seebrook.app`, iOS targets and the `SeebrookShared` framework built from Xcode, API client, no Swift interop plugin, synchronized Xcode project, development-token sign-in in debug builds, `dev-token --days`). Supersedes ED-24; amends ED-15 and ED-19.
 - 2026-11-23 — M5 iOS: added ED-49 (invitation screen on first sign-in and for adding a property; code or link accepted; the server reuses the shared invitation code format check under X-01).
+- 2026-11-24 — M5 iOS: added ED-50 (Firebase email/password and Google sign-in, email verification screen, per-configuration Firebase files out of git, `scripts/dev.sh firebase`, Firebase 12.19.3 until Xcode 26.2); sign-in screen built from the owner's Stitch design.

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One-command local startup: database, mail catcher, migrations, synthetic data, then the API on http://localhost:8088.
-#   scripts/dev.sh          start everything
+#   scripts/dev.sh          start everything (sign-in with development tokens)
+#   scripts/dev.sh firebase start everything, signing in with the development Firebase project (ED-50)
 #   scripts/dev.sh down     stop the local database (data is kept)
 #   scripts/dev.sh reset    stop the local database and delete its data
 set -euo pipefail
@@ -18,8 +19,20 @@ case "${1:-up}" in
     exit 0
     ;;
   up) ;;
+  firebase)
+    # The project ID comes from the app's Firebase file (kept out of git), unless set already.
+    PLIST="$ROOT/mobile-ios/Config/Firebase/Debug/GoogleService-Info.plist"
+    if [ -z "${SEEBROOK_FIREBASE_PROJECT_ID:-}" ]; then
+      if [ ! -f "$PLIST" ]; then
+        echo "No $PLIST; set SEEBROOK_FIREBASE_PROJECT_ID instead" >&2
+        exit 2
+      fi
+      SEEBROOK_FIREBASE_PROJECT_ID="$(/usr/libexec/PlistBuddy -c 'Print :PROJECT_ID' "$PLIST")"
+    fi
+    export SEEBROOK_AUTH_MODE=firebase SEEBROOK_FIREBASE_PROJECT_ID
+    ;;
   *)
-    echo "Usage: scripts/dev.sh [up|down|reset]" >&2
+    echo "Usage: scripts/dev.sh [up|firebase|down|reset]" >&2
     exit 2
     ;;
 esac

@@ -1,7 +1,22 @@
 import SwiftUI
 import SeebrookShared
 
-/// Placeholder home screen for the setup milestone: who is signed in and their properties.
+/// The signed-in app: tabs as in the Stitch "Home Dashboard" design. Payments and Documents join
+/// as their milestones land (ED-51).
+struct MainView: View {
+    let account: AppModel.Account
+
+    var body: some View {
+        TabView {
+            HomeView(account: account)
+                .tabItem { Label("Home", systemImage: "house") }
+            AccountView(account: account)
+                .tabItem { Label("Account", systemImage: "person.crop.circle") }
+        }
+    }
+}
+
+/// Home: a greeting and the selected property, with a menu to switch property or add one.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     let account: AppModel.Account
@@ -9,42 +24,136 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section("Signed in as") {
-                    VStack(alignment: .leading) {
-                        if let name = account.me.displayName { Text(name) }
-                        Text(account.me.email).foregroundStyle(.secondary)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    if let property = model.selectedProperty(in: account) {
+                        greeting(unit: property.unitLabel)
+                        PropertyCard(property: property, menu: propertyMenu)
+                    } else {
+                        greeting(unit: nil)
+                        noProperties
                     }
                 }
-                Section("Your properties") {
-                    if account.properties.isEmpty {
-                        Text("No properties are linked to this account.").foregroundStyle(.secondary)
-                    }
-                    ForEach(account.properties, id: \.id) { property in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(property.unitLabel).font(.headline)
-                            Text(address(property)).font(.subheadline).foregroundStyle(.secondary)
-                        }
-                    }
-                }
+                .padding(20)
             }
-            .navigationTitle("Seebrook")
+            .background(Color(.systemGroupedBackground))
             .refreshable { await model.refresh() }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Sign out") { model.signOut() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Add property", systemImage: "plus") { addingProperty = true }
-                }
+                ToolbarItem(placement: .principal) { header }
             }
+            .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $addingProperty) {
                 InvitationView(firstProperty: false)
             }
         }
     }
 
-    private func address(_ p: PropertyResponse) -> String {
+    private var header: some View {
+        VStack(spacing: 0) {
+            Text((model.selectedProperty(in: account)?.hoaName ?? "Seebrook").uppercased())
+                .font(.caption.weight(.semibold))
+                .tracking(1.2)
+                .foregroundStyle(.tint)
+            Text("Home").font(.headline)
+        }
+    }
+
+    private func greeting(unit: String?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(Self.salutation()).foregroundStyle(.tint)
+                if let unit {
+                    Text(unit)
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 3)
+                        .background(.tint.opacity(0.12), in: Capsule())
+                }
+            }
+            Text(account.me.displayName ?? account.me.email)
+                .font(.title3.weight(.semibold))
+        }
+    }
+
+    private var noProperties: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("No properties are linked to this account.")
+            Text("If you own a home in an HOA that uses Seebrook, enter the invitation your HOA sent you.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Button("Add a property") { addingProperty = true }
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background, in: .rect(cornerRadius: 12))
+    }
+
+    @ViewBuilder private var propertyMenu: some View {
+        if account.properties.count > 1 {
+            Picker("Property", selection: Binding(
+                get: { model.selectedProperty(in: account)?.id },
+                set: { model.select(propertyID: $0) }
+            )) {
+                ForEach(account.properties, id: \.id) { property in
+                    Text("\(property.unitLabel) · \(property.hoaName)").tag(Optional(property.id))
+                }
+            }
+            .pickerStyle(.inline)
+        }
+        Button("Add a property", systemImage: "plus") { addingProperty = true }
+    }
+
+    private static func salutation(at date: Date = .now) -> String {
+        switch Calendar.current.component(.hour, from: date) {
+        case 5..<12: "Good morning"
+        case 12..<17: "Good afternoon"
+        default: "Good evening"
+        }
+    }
+}
+
+/// The selected property: unit, address and HOA, with the property menu.
+private struct PropertyCard<MenuItems: View>: View {
+    let property: PropertyResponse
+    let menu: MenuItems
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: "house.fill")
+                .font(.title2)
+                .foregroundStyle(.tint)
+                .frame(width: 56, height: 56)
+                .background(.tint.opacity(0.12), in: .rect(cornerRadius: 8))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(property.unitLabel.uppercased())
+                    .font(.caption.weight(.semibold))
+                    .tracking(1)
+                    .foregroundStyle(.tint)
+                Text(PropertyAddress.text(property))
+                Text(property.hoaName)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            Menu {
+                menu
+            } label: {
+                Image(systemName: "ellipsis")
+                    .rotationEffect(.degrees(90))
+                    .frame(width: 36, height: 36)
+                    .background(.tint.opacity(0.08), in: .rect(cornerRadius: 8))
+            }
+            .accessibilityLabel("Property options")
+        }
+        .padding(16)
+        .background(.background, in: .rect(cornerRadius: 12))
+    }
+}
+
+enum PropertyAddress {
+    static func text(_ p: PropertyResponse) -> String {
         [p.addressLine1, p.addressLine2, "\(p.city), \(p.stateCode) \(p.postalCode)"]
             .compactMap { $0 }
             .joined(separator: "\n")

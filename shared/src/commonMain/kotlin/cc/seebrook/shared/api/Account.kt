@@ -19,6 +19,8 @@ data class MeResponse(val id: String, val email: String, val displayName: String
 data class PropertyResponse(
     val id: String,
     val hoaId: String,
+    /** The HOA's display name, e.g. "Channel Harbor". */
+    val hoaName: String,
     val unitLabel: String,
     val addressLine1: String,
     val addressLine2: String? = null,

@@ -36,6 +36,11 @@ final class AppModel {
 
     private var credential: Credential?
 
+    /// The property the app is showing, remembered between launches. Only a preference: the
+    /// server decides on every request which properties this account may see.
+    private(set) var selectedPropertyID = UserDefaults.standard.string(forKey: AppModel.selectedPropertyKey)
+    private static let selectedPropertyKey = "selectedPropertyID"
+
     /// The invitation entered while setting up an account; accepted once signed in (and verified).
     private var pendingInvitation: String?
     /// What the invitation screen starts with when that automatic acceptance did not work.
@@ -188,7 +193,8 @@ final class AppModel {
         guard let code = InvitationCode.shared.fromInput(input: input) else { return Self.badInvitationCode }
         do {
             try await authorize()
-            _ = try await api.acceptInvitation(code: code)
+            let accepted = try await api.acceptInvitation(code: code)
+            select(propertyID: accepted.propertyId)
             phase = .signedIn(try await load())
             return nil
         } catch where Self.apiError(error)?.kind == .unauthorized {
@@ -210,6 +216,16 @@ final class AppModel {
         }
     }
 
+    /// The selected property, or the first one when none is selected or it is no longer linked.
+    func selectedProperty(in account: Account) -> PropertyResponse? {
+        account.properties.first { $0.id == selectedPropertyID } ?? account.properties.first
+    }
+
+    func select(propertyID: String?) {
+        selectedPropertyID = propertyID
+        UserDefaults.standard.set(propertyID, forKey: Self.selectedPropertyKey)
+    }
+
     /// The invitation screen takes what the automatic acceptance left behind, once.
     func takeInvitationDraft() -> (input: String, message: String)? {
         defer { invitationDraft = nil }
@@ -223,6 +239,7 @@ final class AppModel {
         TokenStore.clear()
         credential = nil
         api.idToken = nil
+        select(propertyID: nil)
         phase = .signedOut(message: message)
     }
 

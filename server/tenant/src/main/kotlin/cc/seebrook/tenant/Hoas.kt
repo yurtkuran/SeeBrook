@@ -13,6 +13,17 @@ class FindHoa(private val db: Database) {
         db.dsl.select(HOA.ID, HOA.SLUG, HOA.NAME, HOA.TIME_ZONE).from(HOA)
             .where(HOA.SLUG.eq(slug.trim().lowercase()))
             .fetchOne { HoaView(requireNotNull(it.value1()), it.value2(), it.value3(), it.value4()) }
+
+    /** The HOAs with these IDs, by ID; unknown IDs are left out. */
+    fun byIds(ids: Collection<UUID>): Map<UUID, HoaView> =
+        if (ids.isEmpty()) {
+            emptyMap()
+        } else {
+            db.dsl.select(HOA.ID, HOA.SLUG, HOA.NAME, HOA.TIME_ZONE).from(HOA)
+                .where(HOA.ID.`in`(ids))
+                .fetch { HoaView(requireNotNull(it.value1()), it.value2(), it.value3(), it.value4()) }
+                .associateBy { it.id }
+        }
 }
 
 /** HOA lookups other services make inside their own transaction (ED-13). */

@@ -14,7 +14,7 @@ struct RootView: View {
         case .needsInvitation:
             InvitationView(firstProperty: true)
         case .signedIn(let account):
-            HomeView(account: account)
+            MainView(account: account)
         }
     }
 }

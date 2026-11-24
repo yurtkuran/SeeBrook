@@ -80,7 +80,7 @@ $APP dev-token owner07@example.test --days 7   # token to paste into Seebrook De
 
 - Signing: put your team ID in `mobile-ios/Config/Local.xcconfig` (copy the `.example`). Your free Personal Team works on your own iPhone; installs last 7 days.
 - Server address in the app: `http://localhost:8088` on the simulator; `http://<your-mac>.local:8088` on an iPhone on the same Wi-Fi.
-- A new owner taps **Have an invitation? Set up your account** and pastes the invitation, then chooses a password or Google; or signs in first, then pastes the invitation code or link (from `$APP dev-invite "Unit 08" owner08@example.test`, or the email in Mailpit) on the Invitation screen. **+** on the home screen adds another property.
+- A new owner taps **Have an invitation? Set up your account** and pastes the invitation, then chooses a password or Google; or signs in first, then pastes the invitation code or link (from `$APP dev-invite "Unit 08" owner08@example.test`, or the email in Mailpit) on the Invitation screen. The property card's **⋮** menu (or the **Account** tab) switches property and adds another one.
 - Firebase file: `mobile-ios/Config/Firebase/Debug/GoogleService-Info.plist` (from the Firebase console; never committed). Real sign-in needs `scripts/dev.sh firebase`; development tokens (the app's **Developer** button) need plain `scripts/dev.sh`.
 - Debug builds are "Seebrook Dev" (`cc.seebrook.app.dev`); release builds are "Seebrook" (`cc.seebrook.app`).
 - No simulators or devices listed? Install the iOS platform in Xcode > Settings > Components.

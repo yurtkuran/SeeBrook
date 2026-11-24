@@ -15,6 +15,7 @@ import cc.seebrook.shared.api.ErrorResponse
 import cc.seebrook.shared.api.MeResponse
 import cc.seebrook.shared.api.PropertiesResponse
 import cc.seebrook.shared.api.PropertyResponse
+import cc.seebrook.tenant.FindHoa
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
@@ -36,6 +37,13 @@ class AccountActions(db: Database) {
     val getMe = GetMe(db)
     val getMyProperties = GetMyProperties(db)
     val getProperty = GetProperty(db)
+    val findHoa = FindHoa(db)
+
+    /** Adds each property's HOA name, which the app shows with the unit (ED-51). */
+    fun withHoaNames(properties: List<PropertyView>): List<PropertyResponse> {
+        val hoas = findHoa.byIds(properties.map { it.hoaId }.toSet())
+        return properties.map { it.toResponse(hoaName = hoas[it.hoaId]?.name.orEmpty()) }
+    }
 }
 
 /** JDBC calls block, so actions run on the IO dispatcher. */
@@ -54,9 +62,10 @@ internal suspend fun RoutingCall.requireUser(actions: AccountActions): UserActor
         ResolveUser.Result.Disabled -> null.also { error(HttpStatusCode.Forbidden, "account_disabled") }
     }
 
-private fun PropertyView.toResponse() = PropertyResponse(
+private fun PropertyView.toResponse(hoaName: String) = PropertyResponse(
     id = id.toString(),
     hoaId = hoaId.toString(),
+    hoaName = hoaName,
     unitLabel = unitLabel,
     addressLine1 = addressLine1,
     addressLine2 = addressLine2,
@@ -92,8 +101,8 @@ fun Route.accountRoutes(actions: AccountActions) {
 
             get("/me/properties") {
                 val actor = call.requireUser(actions) ?: return@get
-                val properties = io { actions.getMyProperties(actor) }
-                call.respond(PropertiesResponse(properties.map { it.toResponse() }))
+                val properties = io { actions.withHoaNames(actions.getMyProperties(actor)) }
+                call.respond(PropertiesResponse(properties))
             }
 
             // 404 both for unknown properties and for properties the user may not see (GA-06).
@@ -102,7 +111,7 @@ fun Route.accountRoutes(actions: AccountActions) {
                 val propertyId = call.parameters["propertyId"]?.let { runCatching { UUID.fromString(it) }.getOrNull() }
                 val property = propertyId?.let { id -> io { actions.getProperty(actor, id) } }
                     ?: return@get call.error(HttpStatusCode.NotFound, "not_found")
-                call.respond(property.toResponse())
+                call.respond(io { actions.withHoaNames(listOf(property)) }.single())
             }
         }
     }

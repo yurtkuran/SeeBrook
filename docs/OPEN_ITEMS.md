@@ -32,7 +32,8 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 ## Engineering
 
-- [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ → ~~invitations~~ → Firebase sign-in (in review; Sign in with Apple after the paid program) → properties → documents → balance and history → checkout.
+- [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ → ~~invitations~~ → ~~Firebase sign-in~~ (Sign in with Apple after the paid program) → properties (in review) → documents → balance and history → checkout.
+- [ ] **Malformed `Authorization` header** returns 500 instead of 401 (seen in local testing; small server fix).
 - [ ] **Backend for the app**: push device registration, owner profile edits, account deletion (after the decision).
 - [ ] **M6**: recurring payment plans, cancelling a departing owner's recurring charges at transfer, alert delivery.
 - [ ] **M7 pilot**: production setup, backup restore drill, security review, owner onboarding.
@@ -40,10 +41,11 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 ## In review
 
-- Firebase sign-in in the iOS app (ED-50).
+- Properties in the iOS app: Home and Account tabs, property switching (ED-51).
 
 ## Recently closed
 
+- 2026-11-24: Firebase sign-in and the new sign-in screen merged (ED-50, PR #28).
 - 2026-11-24: Development Firebase project created (`seebrook-67b03`).
 - 2026-11-23: Accepting invitations in the iOS app merged (ED-49, PR #27).
 - 2026-11-23: iOS project setup merged (ED-48, PR #26).

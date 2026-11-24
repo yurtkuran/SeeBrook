@@ -11,6 +11,8 @@ final class AppModel {
         case starting
         case signedOut(message: String?)
         case loading
+        /// Signed in with a password whose email is not verified yet.
+        case verifyEmail(String)
         /// Signed in, but not linked to any property yet: the owner enters their invitation.
         case needsInvitation
         case signedIn(Account)
@@ -26,7 +28,20 @@ final class AppModel {
     private(set) var serverURL = ServerSettings.url
     private var api = SeebrookApi(baseUrl: ServerSettings.url)
 
-    /// Signs back in with the stored token, if there is one.
+    /// Where the ID token comes from: Firebase, or a development token (debug builds, ED-48).
+    private enum Credential {
+        case firebase
+        case development(String)
+    }
+
+    private var credential: Credential?
+
+    /// The invitation entered while setting up an account; accepted once signed in (and verified).
+    private var pendingInvitation: String?
+    /// What the invitation screen starts with when that automatic acceptance did not work.
+    private(set) var invitationDraft: (input: String, message: String)?
+
+    /// Resumes the previous session: Firebase keeps its signed-in user, development tokens are in the Keychain.
     func start() async {
         guard case .starting = phase else { return }
         #if DEBUG
@@ -38,37 +53,141 @@ final class AppModel {
             return
         }
         #endif
+        if FirebaseSignIn.currentUser != nil {
+            credential = .firebase
+            await enter()
+            return
+        }
+        #if DEBUG
         if let token = TokenStore.load() {
             await signIn(token: token)
-        } else {
-            phase = .signedOut(message: nil)
+            return
+        }
+        #endif
+        phase = .signedOut(message: nil)
+    }
+
+    // MARK: Signing in. Each returns a message to show, or nil when it worked.
+
+    func signIn(email: String, password: String) async -> String? {
+        await firebase { try await FirebaseSignIn.signIn(email: email.trimmingCharacters(in: .whitespaces), password: password) }
+    }
+
+    func signInWithGoogle() async -> String? {
+        await firebase { try await FirebaseSignIn.signInWithGoogle() }
+    }
+
+    /// Setting up an account is for invited owners (ED-50): the invitation comes first, then a
+    /// password account (with a verification email) or Google, then the invitation is accepted.
+    func setUpAccount(invitation: String, email: String, password: String) async -> String? {
+        await withInvitation(invitation) {
+            try await FirebaseSignIn.createAccount(email: email.trimmingCharacters(in: .whitespaces), password: password)
         }
     }
 
+    func setUpWithGoogle(invitation: String) async -> String? {
+        await withInvitation(invitation) { try await FirebaseSignIn.signInWithGoogle() }
+    }
+
+    private func withInvitation(_ invitation: String, _ signIn: () async throws -> Any) async -> String? {
+        guard InvitationCode.shared.fromInput(input: invitation) != nil else { return Self.badInvitationCode }
+        pendingInvitation = invitation
+        let message = await firebase(signIn)
+        if message != nil { pendingInvitation = nil }
+        return message
+    }
+
+    func sendPasswordReset(email: String) async -> String {
+        let email = email.trimmingCharacters(in: .whitespaces)
+        guard !email.isEmpty else { return "Enter your email address first." }
+        do {
+            try await FirebaseSignIn.sendPasswordReset(email: email)
+        } catch {
+            // Same answer either way, so the screen never reveals whether an account exists.
+        }
+        return "If an account exists for \(email), an email with a reset link is on its way."
+    }
+
+    private func firebase(_ signIn: () async throws -> Any) async -> String? {
+        do {
+            _ = try await signIn()
+        } catch {
+            return FirebaseSignIn.isCancellation(error) ? nil : FirebaseSignIn.message(for: error)
+        }
+        credential = .firebase
+        await enter()
+        return nil
+    }
+
+    /// Debug builds: a token from `seebrook dev-token` (ED-48).
     func signIn(token: String) async {
         let token = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { return }
-        api.idToken = token
+        credential = .development(token)
+        await enter()
+    }
+
+    // MARK: Email verification (needed to accept an invitation, ED-29)
+
+    /// Returns a message when the email still isn't verified.
+    func checkEmailVerified() async -> String? {
+        do {
+            guard try await FirebaseSignIn.refreshEmailVerified() else {
+                return "Your email isn't verified yet. Open the link in the email we sent, then try again."
+            }
+        } catch {
+            return FirebaseSignIn.message(for: error)
+        }
+        await enter()
+        return nil
+    }
+
+    func resendVerification() async -> String {
+        do {
+            try await FirebaseSignIn.resendVerification()
+            return "We sent another verification email."
+        } catch {
+            return FirebaseSignIn.message(for: error)
+        }
+    }
+
+    /// After signing in: verify the email if needed, then load the account or ask for the invitation.
+    private func enter() async {
+        if case .firebase = credential, let user = FirebaseSignIn.currentUser, !user.isEmailVerified {
+            phase = .verifyEmail(user.email ?? "")
+            return
+        }
         phase = .loading
         do {
             let account = try await load()
-            TokenStore.save(token)
+            rememberDevelopmentToken()
             phase = .signedIn(account)
         } catch where Self.apiError(error)?.code == "not_registered" {
-            TokenStore.save(token)
-            phase = .needsInvitation
+            rememberDevelopmentToken()
+            if let invitation = pendingInvitation {
+                pendingInvitation = nil
+                if let message = await acceptInvitation(invitation) {
+                    invitationDraft = (invitation, message)
+                    phase = .needsInvitation
+                }
+            } else {
+                phase = .needsInvitation
+            }
         } catch {
             signOut(message: Self.message(for: error))
         }
     }
 
+    private func rememberDevelopmentToken() {
+        if case .development(let token) = credential { TokenStore.save(token) }
+    }
+
     /// Accepts the invitation in [input] (the code or the whole link from the email). Returns a
     /// message to show when it can't, or nil once the property is linked.
     func acceptInvitation(_ input: String) async -> String? {
-        guard let code = InvitationCode.shared.fromInput(input: input) else {
-            return "That doesn't look like an invitation code. Copy the code or the link from your invitation email."
-        }
+        guard let code = InvitationCode.shared.fromInput(input: input) else { return Self.badInvitationCode }
         do {
+            try await authorize()
             _ = try await api.acceptInvitation(code: code)
             phase = .signedIn(try await load())
             return nil
@@ -91,8 +210,18 @@ final class AppModel {
         }
     }
 
+    /// The invitation screen takes what the automatic acceptance left behind, once.
+    func takeInvitationDraft() -> (input: String, message: String)? {
+        defer { invitationDraft = nil }
+        return invitationDraft
+    }
+
     func signOut(message: String? = nil) {
+        pendingInvitation = nil
+        invitationDraft = nil
+        FirebaseSignIn.signOut()
         TokenStore.clear()
+        credential = nil
         api.idToken = nil
         phase = .signedOut(message: message)
     }
@@ -119,7 +248,20 @@ final class AppModel {
         }
     }
 
+    /// Puts a current ID token on the API client; Firebase refreshes it when it is about to expire.
+    private func authorize() async throws {
+        switch credential {
+        case .firebase:
+            api.idToken = try await FirebaseSignIn.idToken()
+        case .development(let token):
+            api.idToken = token
+        case nil:
+            api.idToken = nil
+        }
+    }
+
     private func load() async throws -> Account {
+        try await authorize()
         let me = try await api.me()
         let properties = try await api.myProperties()
         return Account(me: me, properties: properties.properties)
@@ -129,8 +271,12 @@ final class AppModel {
         (error as NSError).kotlinException as? ApiException
     }
 
+    private static let badInvitationCode = "That doesn't look like an invitation code. Copy the code or the link from your invitation email."
+
     static func message(for error: Error) -> String {
-        guard let e = apiError(error) else { return "Something went wrong. Please try again." }
+        guard let e = apiError(error) else {
+            return error is FirebaseSignIn.NotAvailable ? "Your sign-in has expired. Please sign in again." : "Something went wrong. Please try again."
+        }
         switch (e.kind, e.code) {
         case (.network, _):
             return "Can't reach the Seebrook server. Check your connection and try again."

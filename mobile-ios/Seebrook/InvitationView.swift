@@ -36,6 +36,12 @@ struct InvitationView: View {
                 }
             }
             .navigationTitle("Invitation")
+            .onAppear {
+                if let draft = model.takeInvitationDraft() {
+                    input = draft.input
+                    message = draft.message
+                }
+            }
             .toolbar {
                 if firstProperty {
                     Button("Sign out") { model.signOut() }

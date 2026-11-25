@@ -32,21 +32,20 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 ## Engineering
 
-- [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ → ~~invitations~~ → ~~Firebase sign-in~~ (Sign in with Apple after the paid program) → ~~properties~~ → ~~documents~~ → ~~balance and history~~ → checkout (part 1 in review; Stripe payment sheet after the Stripe test account).
+- [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ → ~~invitations~~ → ~~Firebase sign-in~~ (Sign in with Apple after the paid program) → ~~properties~~ → ~~documents~~ → ~~balance and history~~ → checkout (part 1 done; Stripe payment sheet after the Stripe test account).
 - [ ] **Revisit the app's screen design** (Home, Documents, Account) with the owner; the first versions follow Stitch loosely. Payments now follows the owner's "Payments - Mobile" design (ED-54).
-- [ ] **Malformed `Authorization` header** returns 500 instead of 401 (seen in local testing; small server fix).
 - [ ] **Backend for the app**: push device registration, owner profile edits, account deletion (after the decision).
 - [ ] **M6**: recurring payment plans, cancelling a departing owner's recurring charges at transfer, alert delivery.
-- [ ] **M7 pilot**: production setup, backup restore drill, security review, owner onboarding.
+- [ ] **M7 pilot**: production setup (including the Channel Harbor logo, `set-hoa-logo`), backup restore drill, security review, owner onboarding.
 - [ ] **Later**: financial admin web portal (before a second HOA), Android app.
 
 ## In review
 
-- Checkout in the iOS app, part 1: quote, approval, idempotent start, payment status (ED-54), with the Payments screen in the owner's new design.
-- HOA logos: set with `set-hoa-logo`, shown on the Payments card (ED-55). At the pilot setup, set the Channel Harbor logo in production.
+- Malformed `Authorization` header (e.g. `Bearer a b`) answers 401 instead of 500.
 
 ## Recently closed
 
+- 2026-11-25: iOS checkout part 1, the new Payments design and HOA logos merged (ED-54, ED-55, PR #32).
 - 2026-11-24: Balance and history in the iOS app merged (ED-53, PR #31).
 - 2026-11-24: Documents in the iOS app merged (ED-52, PR #30).
 - 2026-11-24: Properties in the iOS app merged (ED-51, PR #29).

@@ -34,7 +34,6 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 - [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ → ~~invitations~~ → ~~Firebase sign-in~~ (Sign in with Apple after the paid program) → ~~properties~~ → ~~documents~~ → ~~balance and history~~ → checkout (part 1 in review; Stripe payment sheet after the Stripe test account).
 - [ ] **Revisit the app's screen design** (Home, Documents, Account) with the owner; the first versions follow Stitch loosely. Payments now follows the owner's "Payments - Mobile" design (ED-54).
-- [ ] **Serve each HOA's logo** (ED-19): store it in HOA configuration and return it with the property, so the Payments card shows it in place of the placeholder tile.
 - [ ] **Malformed `Authorization` header** returns 500 instead of 401 (seen in local testing; small server fix).
 - [ ] **Backend for the app**: push device registration, owner profile edits, account deletion (after the decision).
 - [ ] **M6**: recurring payment plans, cancelling a departing owner's recurring charges at transfer, alert delivery.
@@ -44,6 +43,7 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 ## In review
 
 - Checkout in the iOS app, part 1: quote, approval, idempotent start, payment status (ED-54), with the Payments screen in the owner's new design.
+- HOA logos: set with `set-hoa-logo`, shown on the Payments card (ED-55). At the pilot setup, set the Channel Harbor logo in production.
 
 ## Recently closed
 

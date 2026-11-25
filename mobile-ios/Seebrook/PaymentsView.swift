@@ -202,7 +202,7 @@ struct BalanceCard: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color(red: 0.23, green: 0.51, blue: 0.96))
                     .padding(.horizontal, 44)
-                HoaLogo().frame(maxWidth: .infinity, alignment: .leading)
+                HoaLogo(property: property).frame(maxWidth: .infinity, alignment: .leading)
             }
             VStack(spacing: 6) {
                 caption
@@ -412,16 +412,33 @@ private struct OnlinePaymentRow: View {
     }
 }
 
-/// The HOA's logo on the balance card. Until the server serves each HOA's logo (ED-19), a
-/// neutral tile keeps its place.
+/// The HOA's logo on the balance card (ED-55); a neutral tile while it loads or when the HOA has none.
 private struct HoaLogo: View {
+    @Environment(AppModel.self) private var model
+    let property: PropertyResponse
+    @State private var image: UIImage?
+
     var body: some View {
-        Image(systemName: "building.2.fill")
-            .font(.subheadline)
-            .foregroundStyle(.tint)
-            .frame(width: 36, height: 36)
-            .background(.tint.opacity(0.1), in: .rect(cornerRadius: 8))
-            .accessibilityHidden(true)
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 36, height: 36)
+                    .clipShape(.rect(cornerRadius: 8))
+                    .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
+            } else {
+                Image(systemName: "building.2.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.tint)
+                    .frame(width: 36, height: 36)
+                    .background(.tint.opacity(0.1), in: .rect(cornerRadius: 8))
+            }
+        }
+        .accessibilityHidden(true)
+        .task(id: "\(property.id) \(property.hoaLogoVersion ?? "")") {
+            image = await model.hoaLogo(for: property)
+        }
     }
 }
 

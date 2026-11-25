@@ -30,6 +30,9 @@ import cc.seebrook.platform.auth.UserActor
 import cc.seebrook.platform.db.Database
 import cc.seebrook.platform.storage.ObjectStorage
 import cc.seebrook.tenant.FindHoa
+import cc.seebrook.tenant.LogoImage
+import cc.seebrook.tenant.RemoveHoaLogo
+import cc.seebrook.tenant.SetHoaLogo
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDate
@@ -285,6 +288,34 @@ class AdminCommands(
                 "${r.documentId}  ${r.category}  ${r.title}  ${r.status}$rejected"
             }.ifEmpty { "No documents" }
             ListDocumentsForAdmin.Result.Forbidden -> throw CommandException("Operator may not manage documents in this HOA")
+        }
+    }
+
+    fun setHoaLogo(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "file"))
+        val storage = requireStorage()
+        val path = Path.of(o.required("file"))
+        if (!Files.isRegularFile(path)) throw CommandException("No file at $path")
+        if (Files.size(path) > LogoImage.MAX_UPLOAD_BYTES) throw CommandException("File is larger than 2 MB")
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        return when (val result = SetHoaLogo(db, storage)(operator(o.required("operator")), hoaId, Files.readAllBytes(path))) {
+            is SetHoaLogo.Result.Set -> "Logo set (${result.width} × ${result.height} pixels, ${result.bytes / 1024} KB). " +
+                "Owners see it the next time the app loads their properties."
+            is SetHoaLogo.Result.InvalidImage -> throw CommandException("Not set: ${result.reason}")
+            SetHoaLogo.Result.HoaNotFound -> throw CommandException("No HOA '${o["hoa"]}'")
+            SetHoaLogo.Result.Forbidden -> throw CommandException("Operator may not manage this HOA's profile")
+        }
+    }
+
+    fun removeHoaLogo(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa"))
+        val storage = requireStorage()
+        val hoaId = requireNotNull(hoaId(o.required("hoa")))
+        return when (RemoveHoaLogo(db, storage)(operator(o.required("operator")), hoaId)) {
+            RemoveHoaLogo.Result.Removed -> "Logo removed; the app shows its placeholder."
+            RemoveHoaLogo.Result.NoLogo -> "The HOA has no logo; nothing changed."
+            RemoveHoaLogo.Result.HoaNotFound -> throw CommandException("No HOA '${o["hoa"]}'")
+            RemoveHoaLogo.Result.Forbidden -> throw CommandException("Operator may not manage this HOA's profile")
         }
     }
 

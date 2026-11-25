@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import Observation
 import SeebrookShared
 
@@ -278,6 +279,31 @@ final class AppModel {
     }
 
     struct DownloadFailed: Error {}
+
+    /// The logo of the property's HOA (ED-55), or nil when it has none or it can't be loaded now.
+    /// Kept on the device by version, so it is downloaded again only after the HOA changes it.
+    func hoaLogo(for property: PropertyResponse) async -> UIImage? {
+        guard let version = property.hoaLogoVersion else { return nil }
+        let folder = URL.cachesDirectory.appendingPathComponent("hoa-logos", isDirectory: true)
+        let file = folder.appendingPathComponent("\(property.hoaId)-\(version).png")
+        if let cached = UIImage(contentsOfFile: file.path) { return cached }
+        do {
+            let link = try await signedIn { try await $0.hoaLogo(propertyId: property.id) }
+            guard let url = URL(string: link.url) else { return nil }
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard (response as? HTTPURLResponse)?.statusCode == 200, let image = UIImage(data: data) else { return nil }
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            // Earlier versions of this HOA's logo are no longer needed.
+            for old in (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+            where old.lastPathComponent.hasPrefix("\(property.hoaId)-") {
+                try? FileManager.default.removeItem(at: old)
+            }
+            try data.write(to: file, options: .atomic)
+            return image
+        } catch {
+            return nil
+        }
+    }
 
     /// Runs a signed-in API call. An expired sign-in signs out; other errors go to the caller.
     private func signedIn<T>(_ call: (SeebrookApi) async throws -> T) async throws -> T {

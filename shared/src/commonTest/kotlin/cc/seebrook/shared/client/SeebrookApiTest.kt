@@ -88,6 +88,15 @@ class SeebrookApiTest {
     }
 
     @Test
+    fun hoaLogoLinksAreFetchedForTheProperty() = runTest {
+        val logo = api(body = """{"url":"https://files.test/logo.png?sig=1","expiresAt":"2026-11-25T12:05:00Z","version":"v2"}""")
+            .apply { idToken = "tok" }
+            .hoaLogo("p1")
+        assertEquals("v2", logo.version)
+        assertEquals("http://seebrook.test/v1/properties/p1/hoa-logo", requests.single().first)
+    }
+
+    @Test
     fun financeSummaryDecodesCents() = runTest {
         val summary = api(
             body = """{"propertyId":"p1","currency":"USD","balanceCents":95000,"amountDueCents":95000,

@@ -58,6 +58,7 @@ $APP help                       # every command
 - Commands that change data run as a dry run first. Add `--commit --reason "<why>"` to apply.
 - Every change is audited under the operator's email (`--operator <email>`).
 - The pilot HOA is `--hoa channel-harbor`.
+- HOA logo (shown in the app): `$APP set-hoa-logo --operator <email> --hoa channel-harbor --file assets/hoas/channel-harbor/logo.png` (PNG or JPEG, up to 2 MB; `remove-hoa-logo` to clear it).
 
 ### Sign in as a test owner (development only)
 

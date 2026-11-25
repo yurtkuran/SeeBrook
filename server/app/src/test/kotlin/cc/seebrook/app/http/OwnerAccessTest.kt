@@ -200,6 +200,10 @@ class OwnerAccessTest {
         http.get("/v1/me/properties") { bearerAuth("not-a-token") }.status shouldBe HttpStatusCode.Unauthorized
         http.get("/v1/me/properties") { header("Authorization", "Basic dXNlcjpwYXNz") }.status shouldBe
             HttpStatusCode.Unauthorized
+        // Headers Ktor cannot parse are treated as missing, not as a server error.
+        listOf("Bearer a b", "Bearer a,b c", "Bearer =", ",").forEach { malformed ->
+            http.get("/v1/me/properties") { header("Authorization", malformed) }.status shouldBe HttpStatusCode.Unauthorized
+        }
         http.post("/v1/invitations/accept").status shouldBe HttpStatusCode.Unauthorized
     }
 

@@ -15,6 +15,9 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
 import io.ktor.server.auth.bearer
+import io.ktor.server.auth.parseAuthorizationHeader
+import io.ktor.http.parsing.ParseException
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
@@ -57,6 +60,16 @@ fun Application.seebrookModule(
     }
     install(Authentication) {
         bearer(FIREBASE_AUTH) {
+            // A header Ktor cannot parse (e.g. "Bearer a b") counts as missing, so it yields 401, not 500.
+            authHeader { call ->
+                try {
+                    call.request.parseAuthorizationHeader()
+                } catch (e: BadRequestException) { // Ktor wraps the header's ParseException in it
+                    null
+                } catch (e: ParseException) {
+                    null
+                }
+            }
             // A missing or invalid token yields 401. The token itself is never logged.
             authenticate { credential ->
                 try {

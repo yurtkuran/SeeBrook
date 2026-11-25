@@ -5,8 +5,15 @@ import cc.seebrook.platform.db.Database
 import org.jooq.DSLContext
 import java.util.UUID
 
-/** [logoVersion] is null when the HOA has no logo (ED-55). */
-data class HoaView(val id: UUID, val slug: String, val name: String, val timeZone: String, val logoVersion: String? = null)
+/** [logoVersion] and [photoVersion] are null when the HOA has no logo (ED-55) or photo (ED-57). */
+data class HoaView(
+    val id: UUID,
+    val slug: String,
+    val name: String,
+    val timeZone: String,
+    val logoVersion: String? = null,
+    val photoVersion: String? = null,
+)
 
 /** Looks up an HOA by its slug (e.g. `channel-harbor`), as operators name HOAs in admin commands. */
 class FindHoa(private val db: Database) {
@@ -20,9 +27,15 @@ class FindHoa(private val db: Database) {
         if (ids.isEmpty()) {
             emptyMap()
         } else {
-            db.dsl.select(HOA.ID, HOA.SLUG, HOA.NAME, HOA.TIME_ZONE, HOA.LOGO_KEY).from(HOA)
+            db.dsl.select(HOA.ID, HOA.SLUG, HOA.NAME, HOA.TIME_ZONE, HOA.LOGO_KEY, HOA.PHOTO_KEY).from(HOA)
                 .where(HOA.ID.`in`(ids))
-                .fetch { HoaView(requireNotNull(it.value1()), it.value2(), it.value3(), it.value4(), it.value5()?.let(LogoKeys::version)) }
+                .fetch {
+                    HoaView(
+                        requireNotNull(it.value1()), it.value2(), it.value3(), it.value4(),
+                        logoVersion = it.value5()?.let(HoaImageKeys::version),
+                        photoVersion = it.value6()?.let(HoaImageKeys::version),
+                    )
+                }
                 .associateBy { it.id }
         }
 }

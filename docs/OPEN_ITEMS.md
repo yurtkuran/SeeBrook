@@ -1,7 +1,7 @@
 ---
 title: Seebrook open items
 tags: [seebrook, status]
-updated: 2026-11-24
+updated: 2026-11-25
 ---
 
 # Open items
@@ -21,6 +21,7 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 - [ ] **Apple Developer Program** ($99/yr). *At TestFlight; until then testing runs on the owner's iPhone with a free Personal Team.*
 - [ ] **Google Play account** ($25). *When the Android app starts.*
 - [ ] **Pilot roster and PDFs**, provided securely. *Synthetic data until then.*
+- [ ] **Channel Harbor community photo**: a clean photo the HOA may use (the one in the Stitch design is a social media screenshot). *Before the pilot.*
 - [ ] **First real `convert-register` dry run** on the Channel Harbor workbook. *Before importing real data.*
 
 ## Decisions pending
@@ -33,18 +34,19 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 ## Engineering
 
 - [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ → ~~invitations~~ → ~~Firebase sign-in~~ (Sign in with Apple after the paid program) → ~~properties~~ → ~~documents~~ → ~~balance and history~~ → checkout (part 1 done; Stripe payment sheet after the Stripe test account).
-- [ ] **Revisit the app's screen design** (Home, Documents, Account) with the owner; the first versions follow Stitch loosely. Payments now follows the owner's "Payments - Mobile" design (ED-54).
+- [ ] **Revisit the app's screen design** (Documents, Account) with the owner; the first versions follow Stitch loosely. Payments and Home now follow the owner's "Payments - Mobile" and "Home - Mobile" designs (ED-54, ED-56).
 - [ ] **Backend for the app**: push device registration, owner profile edits, account deletion (after the decision).
 - [ ] **M6**: recurring payment plans, cancelling a departing owner's recurring charges at transfer, alert delivery.
-- [ ] **M7 pilot**: production setup (including the Channel Harbor logo, `set-hoa-logo`), backup restore drill, security review, owner onboarding.
+- [ ] **M7 pilot**: production setup (including the Channel Harbor logo and photo, `set-hoa-logo`, `set-hoa-photo`), backup restore drill, security review, owner onboarding.
 - [ ] **Later**: financial admin web portal (before a second HOA), Android app.
 
 ## In review
 
-- Malformed `Authorization` header (e.g. `Bearer a b`) answers 401 instead of 500.
+- Home restyled to the owner's "Home - Mobile" design (ED-56), with each HOA's community photo (ED-57).
 
 ## Recently closed
 
+- 2026-11-25: Malformed `Authorization` header answers 401 instead of 500 (PR #33).
 - 2026-11-25: iOS checkout part 1, the new Payments design and HOA logos merged (ED-54, ED-55, PR #32).
 - 2026-11-24: Balance and history in the iOS app merged (ED-53, PR #31).
 - 2026-11-24: Documents in the iOS app merged (ED-52, PR #30).

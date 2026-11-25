@@ -8,7 +8,7 @@ import cc.seebrook.shared.api.DocumentCategoriesResponse
 import cc.seebrook.shared.api.DocumentsPageResponse
 import cc.seebrook.shared.api.DownloadLinkResponse
 import cc.seebrook.shared.api.ErrorResponse
-import cc.seebrook.shared.api.HoaLogoResponse
+import cc.seebrook.shared.api.HoaImageResponse
 import cc.seebrook.shared.api.HealthResponse
 import cc.seebrook.shared.api.MeResponse
 import cc.seebrook.shared.api.PaymentQuoteRequest
@@ -91,7 +91,14 @@ class SeebrookApi internal constructor(baseUrl: String, engine: HttpClientEngine
      * `hoaLogoVersion`; fails with `no_logo` when the HOA has none.
      */
     @Throws(ApiException::class, CancellationException::class)
-    suspend fun hoaLogo(propertyId: String): HoaLogoResponse = call { http.get("${property(propertyId)}/hoa-logo", it) }
+    suspend fun hoaLogo(propertyId: String): HoaImageResponse = call { http.get("${property(propertyId)}/hoa-logo", it) }
+
+    /**
+     * A short-lived link to the community photo of the property's HOA (ED-57). Ask only when the
+     * property has a `hoaPhotoVersion`; fails with `no_photo` when the HOA has none.
+     */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun hoaPhoto(propertyId: String): HoaImageResponse = call { http.get("${property(propertyId)}/hoa-photo", it) }
 
     /**
      * The property's balance, as computed by the server (ED-42). Fails with `not_found`, or

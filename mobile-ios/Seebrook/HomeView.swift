@@ -33,8 +33,9 @@ struct MainView: View {
     }
 }
 
-/// Home: a greeting, the selected property (with a menu to switch property or add one) and its
-/// balance, which opens Payments.
+/// Home, following the owner's "Home - Mobile" design (2026-11-25): the selected property (with
+/// a menu to switch property or add one), its balance and the HOA's community photo. Tapping the
+/// balance opens Payments.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     let account: AppModel.Account
@@ -45,31 +46,25 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(spacing: 20) {
                     if let property = model.selectedProperty(in: account) {
-                        greeting(unit: property.unitLabel)
                         PropertyCard(property: property, menu: propertyMenu)
                         if let summary {
                             Button(action: showPayments) {
-                                VStack(alignment: .leading, spacing: 0) {
-                                    BalanceCard(property: property, summary: summary, compact: true)
-                                    Label("View payments", systemImage: "chevron.right")
-                                        .labelStyle(TrailingIconLabelStyle())
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(.tint)
-                                        .padding(.horizontal, 20)
-                                        .padding(.bottom, 16)
-                                }
-                                .background(.background, in: .rect(cornerRadius: 12))
+                                BalanceCard(property: property, summary: summary, compact: true)
+                                    .contentShape(.rect(cornerRadius: 14))
                             }
                             .buttonStyle(.plain)
+                            .accessibilityHint("Opens Payments")
                         }
+                        HoaPhoto(property: property)
                     } else {
-                        greeting(unit: nil)
                         noProperties
                     }
                 }
                 .padding(20)
+                // Same distance from the top as the Payments card, which sits in a List section.
+                .padding(.top, 15)
             }
             .background(Color(.systemGroupedBackground))
             .refreshable {
@@ -77,12 +72,8 @@ struct HomeView: View {
                 await loadSummary()
             }
             .task(id: model.selectedProperty(in: account)?.id) { await loadSummary() }
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    ScreenTitle(hoa: model.selectedProperty(in: account)?.hoaName, title: "Home")
-                }
-            }
-            .navigationBarTitleDisplayMode(.inline)
+            // The property card names the unit and HOA, so the screen has no title bar (design).
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $addingProperty) {
                 InvitationView(firstProperty: false)
             }
@@ -99,23 +90,6 @@ struct HomeView: View {
         summary = try? await model.financeSummary(propertyId: propertyId)
     }
 
-    private func greeting(unit: String?) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Text(Self.salutation()).foregroundStyle(.tint)
-                if let unit {
-                    Text(unit)
-                        .font(.subheadline.weight(.medium))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 3)
-                        .background(.tint.opacity(0.12), in: Capsule())
-                }
-            }
-            Text(account.me.displayName ?? account.me.email)
-                .font(.title3.weight(.semibold))
-        }
-    }
-
     private var noProperties: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("No properties are linked to this account.")
@@ -127,7 +101,7 @@ struct HomeView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: .rect(cornerRadius: 12))
+        .background(.background, in: .rect(cornerRadius: 14))
     }
 
     @ViewBuilder private var propertyMenu: some View {
@@ -144,52 +118,71 @@ struct HomeView: View {
         }
         Button("Add a property", systemImage: "plus") { addingProperty = true }
     }
+}
 
-    private static func salutation(at date: Date = .now) -> String {
-        switch Calendar.current.component(.hour, from: date) {
-        case 5..<12: "Good morning"
-        case 12..<17: "Good afternoon"
-        default: "Good evening"
+/// The HOA's community photo (ED-57), under the balance as in the design. Nothing shows when the
+/// HOA has no photo or it can't be loaded; a plain tile holds its place while it loads.
+private struct HoaPhoto: View {
+    @Environment(AppModel.self) private var model
+    let property: PropertyResponse
+    @State private var image: UIImage?
+    /// The photo that couldn't be loaded; another property or a new version tries again.
+    @State private var failedKey: String?
+
+    private var key: String { "\(property.id) \(property.hoaPhotoVersion ?? "")" }
+
+    var body: some View {
+        if property.hoaPhotoVersion != nil && failedKey != key {
+            Color(.secondarySystemFill)
+                .frame(height: 220)
+                .overlay {
+                    if let image {
+                        Image(uiImage: image).resizable().scaledToFill()
+                    }
+                }
+                .clipShape(.rect(cornerRadius: 14))
+                .accessibilityElement()
+                .accessibilityLabel("\(property.hoaName) community photo")
+                .accessibilityAddTraits(.isImage)
+                .task(id: key) {
+                    image = nil
+                    let loaded = await model.hoaPhoto(for: property)
+                    if Task.isCancelled { return }
+                    image = loaded
+                    if loaded == nil { failedKey = key }
+                }
         }
     }
 }
 
-/// The selected property: unit, address and HOA, with the property menu.
+/// The selected property: the HOA logo with the unit and HOA, then the address and the property menu.
 private struct PropertyCard<MenuItems: View>: View {
     let property: PropertyResponse
     let menu: MenuItems
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            Image(systemName: "house.fill")
-                .font(.title2)
-                .foregroundStyle(.tint)
-                .frame(width: 56, height: 56)
-                .background(.tint.opacity(0.12), in: .rect(cornerRadius: 8))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(property.unitLabel.uppercased())
-                    .font(.caption.weight(.semibold))
-                    .tracking(1)
-                    .foregroundStyle(.tint)
+        VStack(alignment: .leading, spacing: 18) {
+            PropertyHeader(property: property)
+            HStack(alignment: .top) {
                 Text(PropertyAddress.text(property))
-                Text(property.hoaName)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Menu {
+                    menu
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .rotationEffect(.degrees(90))
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(.rect)
+                }
+                .tint(.secondary)
+                .accessibilityLabel("Property options")
             }
-            Spacer(minLength: 0)
-            Menu {
-                menu
-            } label: {
-                Image(systemName: "ellipsis")
-                    .rotationEffect(.degrees(90))
-                    .frame(width: 36, height: 36)
-                    .background(.tint.opacity(0.08), in: .rect(cornerRadius: 8))
-            }
-            .accessibilityLabel("Property options")
         }
-        .padding(16)
-        .background(.background, in: .rect(cornerRadius: 12))
+        .padding(20)
+        .background(.background, in: .rect(cornerRadius: 14))
     }
 }
 
@@ -198,15 +191,5 @@ enum PropertyAddress {
         [p.addressLine1, p.addressLine2, "\(p.city), \(p.stateCode) \(p.postalCode)"]
             .compactMap { $0 }
             .joined(separator: "\n")
-    }
-}
-
-/// Title first, icon after: "View payments ›".
-private struct TrailingIconLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 4) {
-            configuration.title
-            configuration.icon.font(.caption.weight(.semibold))
-        }
     }
 }

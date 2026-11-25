@@ -656,7 +656,7 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Alternatives considered:** FirebaseUI's prebuilt screens — less control over wording and the invitation flow. Accepting development tokens and Firebase tokens at once locally — two verifiers in the security path for a convenience; switching `dev.sh` modes is enough.
 
 ## ED-51 — Properties in the iOS app
-- **Status:** Accepted · **Date:** 2026-11-24 · **Decided by:** engineering, following the owner's Stitch "Home Dashboard" design · **Related:** ED-17, ED-29, ED-48, ED-49
+- **Status:** Accepted, amended by ED-56 (Home design) · **Date:** 2026-11-24 · **Decided by:** engineering, following the owner's Stitch "Home Dashboard" design · **Related:** ED-17, ED-29, ED-48, ED-49
 - **Decision:**
   - **Tabs:** the signed-in app has **Home** and **Account** tabs. Payments and Documents join, as in the design, when their milestones land, so the app never shows an empty tab.
   - **Home:** the HOA name and "Home" at the top, a greeting with the owner's name (or email) and a unit chip, and a card with the selected property's unit, address and HOA. The card's menu switches property (when there are several) and adds one by invitation. The design's balance and payment card comes with "balance and history"; its photo, bell and avatar wait for data or features behind them.
@@ -682,7 +682,7 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Alternatives considered:** an in-app PDF view with PDFKit — more code for what Quick Look already does, including sharing. Keeping downloaded PDFs for offline use — would leave copies on the device after access ends (GA-10); revisit if owners ask.
 
 ## ED-53 — Balance and history in the iOS app
-- **Status:** Accepted, amended by ED-54 (screen design) · **Date:** 2026-11-24 · **Decided by:** engineering, following the owner's Stitch "Dues & Payments" and "Home Dashboard" designs · **Related:** ED-17, ED-42, ED-46, ED-51
+- **Status:** Accepted, amended by ED-54 (screen design) and ED-56 (Home balance card) · **Date:** 2026-11-24 · **Decided by:** engineering, following the owner's Stitch "Dues & Payments" and "Home Dashboard" designs · **Related:** ED-17, ED-42, ED-46, ED-51
 - **Decision:**
   - **Payments tab** (between Home and Documents, as in the design) for the selected property:
     - **Balance card:** the unit, the current balance (or the credit), and one status: overdue amount, else the next due date when something is not yet due, else "Paid up" (or, with a credit, "Applied to your next charges"). When some is overdue and some not yet due, both amounts are listed. Payments still processing are shown with a note that the balance changes once they settle (ED-46), and the date the HOA last updated the figures.
@@ -712,7 +712,7 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Alternatives considered:** sending the quote's figures without the owner choosing a method — the fee differs by method and the owner must approve the total (GA-22). A key per tap — a retry after a lost response could start a second payment.
 
 ## ED-55 — HOA logos
-- **Status:** Accepted · **Date:** 2026-11-25 · **Decided by:** owner (requirement: each HOA can add its logo to personalize the app), engineering (design) · **Related:** ED-19, ED-32, ED-38, ED-39, ED-54
+- **Status:** Accepted, extended by ED-57 (community photo; code shared) · **Date:** 2026-11-25 · **Decided by:** owner (requirement: each HOA can add its logo to personalize the app), engineering (design) · **Related:** ED-19, ED-32, ED-38, ED-39, ED-54
 - **Decision:**
   - **Who sets it:** a new permission, *manage HOA profile*, held by Root and the HOA Admin of that HOA (amends ED-32). Admin commands `set-hoa-logo` and `remove-hoa-logo`; both audited (`hoa.logo_set`, `hoa.logo_removed`). The financial admin portal can offer the same later.
   - **What is stored:** PNG or JPEG uploads up to 2 MB, 32 to 4096 pixels a side (checked before the image is decoded). The server draws the pixels into a new PNG at most 512 pixels a side, so nothing else from the uploaded file is kept, and stores it in private storage under `hoa/<id>/logo/<random>.png`. `tenant.hoa` keeps the key and when it was set. A new logo replaces the old one, whose file is then deleted.
@@ -720,6 +720,26 @@ Each exception must state what it is, why it cannot live solely in the backend, 
   - **In the app:** the Payments balance card shows the logo, kept on the device by version so it is downloaded again only after it changes; a neutral tile shows while it loads, when there is none or when it can't be loaded.
 - **Verification:** server tests cover owners seeing the version and link, another HOA's or another owner's property not found, replacement with a new version and the old file deleted, removal, audit events, permissions (Document Admin and other HOAs refused, HOA Admin and Root allowed), refused files with nothing stored, and storage disabled (503). Shared client test for the link. Locally: the Channel Harbor logo (`assets/hoas/channel-harbor/logo.png`, 1254 pixels) was stored as 512 × 512 and shows on the Payments card.
 - **Alternatives considered:** bundling each HOA's logo in the app — needs an app release per HOA (ED-19). Storing the image in the database — works, but documents already use private storage and signed links. Serving the image bytes through the API — simpler links, but bytes are awkward to pass from the shared module to Swift, and the signed link matches document downloads.
+
+## ED-56 — Home screen design
+- **Status:** Accepted · **Date:** 2026-11-25 · **Decided by:** owner (Stitch "Home - Mobile" design; tapping the balance opens Payments), engineering · **Related:** ED-51, ED-53, ED-54, ED-55
+- **Decision:**
+  - **Layout (amends ED-51):** Home follows the owner's design. There is no title bar and no greeting. The property card shows the HOA logo (ED-55) with "Unit · HOA" centered, as on the Payments card, then the address and the property menu (⋮), which still switches property and adds one.
+  - **Balance (amends ED-53):** the compact balance card shows the caption, the amount and its status centered, like the Payments card, without the "View payments" link or the currency code. A processing note still shows when payments are settling (not in the design; it explains a balance that hasn't changed yet). Tapping the card opens the Payments tab.
+  - **One header:** the logo and "Unit · HOA" row is a shared view used by both cards, so they stay alike.
+- **Verification:** the app builds; in the simulator, Unit 05 shows the Channel Harbor logo, the address and its balance as in the design. Not checked here: tapping the card (no UI automation); it uses the same action as before.
+- **Alternatives considered:** keeping the greeting — the design drops it, and the owner's name is on the Account tab.
+
+## ED-57 — HOA community photo on Home
+- **Status:** Accepted · **Date:** 2026-11-25 · **Decided by:** owner (requirement: each HOA can show a photo of its choosing on Home; placement from the owner's "Home - Mobile" design), engineering (design) · **Related:** ED-55, ED-56
+- **Decision:**
+  - **Same path as logos (ED-55):** the logo code becomes general HOA image code with two kinds, *logo* and *photo*. Each kind has its own storage columns, limits and format; permissions, audit, storage, versioning, signed links and the app's cache are shared. Same permission (*manage HOA profile*); audit actions `hoa.photo_set` and `hoa.photo_removed`; commands `set-hoa-photo` and `remove-hoa-photo`.
+  - **Photo limits:** PNG or JPEG up to 10 MB (phone photos), 320 to 8192 pixels a side, checked before decoding. Large images are read at a reduced size to keep server memory low. Stored as a JPEG (quality 0.85) at most 1600 pixels a side under `hoa/<id>/photo/<random>.jpg`; transparent parts become white. A JPEG is far smaller than a PNG for a photo, so it stays quick to download on a phone.
+  - **API:** properties carry `hoaPhotoVersion`; `GET /v1/properties/{id}/hoa-photo` returns a 5-minute link, with the same access rules and errors as the logo (`no_photo`, `photo_unavailable`). The shared response type is renamed `HoaImageResponse` for both.
+  - **In the app:** Home shows the photo under the balance card, filling a 220-point rounded card. A plain tile holds its place while it loads. Nothing shows when the HOA has no photo or it can't be loaded. It is kept on the device by version, like the logo.
+  - **The photo itself is the HOA's choice and responsibility:** it must be one the HOA may use. The photo in the Stitch design is a screenshot of a social media post with its icons in the frame; it is only for the mock-up.
+- **Verification:** server tests cover the photo stored as a 1600 × 1200 JPEG from a 4000 × 3000 transparent PNG (transparent parts white), its version and link separate from the logo, another HOA's photo not reachable, removal and audit, permissions, and too-small and too-large files; the logo tests still pass. Shared client test for the photo link. Locally, the photo shows on Home in the simulator.
+- **Alternatives considered:** a separate copy of the logo code for photos — two copies of the same security checks to keep in step. Storing photos as PNG — several megabytes per photo for no visible gain. Bundling photos in the app — needs an app release per HOA (ED-19).
 
 ## Change log
 - 2026-11-13 — Created. Recorded ED-01–ED-12 and pending decisions.
@@ -756,3 +776,5 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-24 — M5 iOS: added ED-53 (Payments tab: balance card and paged history with references and carried forward; compact balance on Home).
 - 2026-11-24 — M5 iOS: added ED-54 (checkout part 1: quote, approval, idempotent start, online payment status; Stripe payment sheet deferred to the Stripe test account). Payments screen restyled to the owner's "Payments - Mobile" design; ED-53 marked amended.
 - 2026-11-25 — Added ED-55 (HOA logos: manage HOA profile permission for HOA Admin and Root, server-made PNG in private storage, version in the property response, short-lived link, app cache). Amends ED-32. Owner requirement added to `REQUIREMENTS.md`.
+- 2026-11-25 — Added ED-56 (Home restyled to the owner's "Home - Mobile" design: logo header shared with Payments, centered balance that opens Payments, no greeting). Amends ED-51 and ED-53.
+- 2026-11-25 — Added ED-57 (HOA community photo on Home: logo code generalized to HOA images, JPEG at most 1600 pixels, `hoaPhotoVersion`, `/hoa-photo` link, `set-hoa-photo`). Owner requirement added to `REQUIREMENTS.md`; ED-55 marked extended.

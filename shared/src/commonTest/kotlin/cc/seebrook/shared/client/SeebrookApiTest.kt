@@ -97,6 +97,15 @@ class SeebrookApiTest {
     }
 
     @Test
+    fun hoaPhotoLinksAreFetchedForTheProperty() = runTest {
+        val photo = api(body = """{"url":"https://files.test/photo.jpg?sig=1","expiresAt":"2026-11-25T12:05:00Z","version":"p3"}""")
+            .apply { idToken = "tok" }
+            .hoaPhoto("p1")
+        assertEquals("p3", photo.version)
+        assertEquals("http://seebrook.test/v1/properties/p1/hoa-photo", requests.single().first)
+    }
+
+    @Test
     fun financeSummaryDecodesCents() = runTest {
         val summary = api(
             body = """{"propertyId":"p1","currency":"USD","balanceCents":95000,"amountDueCents":95000,

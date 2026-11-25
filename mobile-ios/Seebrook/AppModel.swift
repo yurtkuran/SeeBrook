@@ -281,21 +281,35 @@ final class AppModel {
     struct DownloadFailed: Error {}
 
     /// The logo of the property's HOA (ED-55), or nil when it has none or it can't be loaded now.
-    /// Kept on the device by version, so it is downloaded again only after the HOA changes it.
     func hoaLogo(for property: PropertyResponse) async -> UIImage? {
-        guard let version = property.hoaLogoVersion else { return nil }
-        let folder = URL.cachesDirectory.appendingPathComponent("hoa-logos", isDirectory: true)
-        let file = folder.appendingPathComponent("\(property.hoaId)-\(version).png")
+        await hoaImage(folder: "hoa-logos", hoaId: property.hoaId, version: property.hoaLogoVersion, fileExtension: "png") {
+            try await $0.hoaLogo(propertyId: property.id)
+        }
+    }
+
+    /// The community photo of the property's HOA (ED-57), or nil when it has none or it can't be loaded now.
+    func hoaPhoto(for property: PropertyResponse) async -> UIImage? {
+        await hoaImage(folder: "hoa-photos", hoaId: property.hoaId, version: property.hoaPhotoVersion, fileExtension: "jpg") {
+            try await $0.hoaPhoto(propertyId: property.id)
+        }
+    }
+
+    /// Kept on the device by version, so an HOA image is downloaded again only after the HOA changes it.
+    private func hoaImage(folder name: String, hoaId: String, version: String?, fileExtension: String,
+                          link: (SeebrookApi) async throws -> HoaImageResponse) async -> UIImage? {
+        guard let version else { return nil }
+        let folder = URL.cachesDirectory.appendingPathComponent(name, isDirectory: true)
+        let file = folder.appendingPathComponent("\(hoaId)-\(version).\(fileExtension)")
         if let cached = UIImage(contentsOfFile: file.path) { return cached }
         do {
-            let link = try await signedIn { try await $0.hoaLogo(propertyId: property.id) }
+            let link = try await signedIn(link)
             guard let url = URL(string: link.url) else { return nil }
             let (data, response) = try await URLSession.shared.data(from: url)
             guard (response as? HTTPURLResponse)?.statusCode == 200, let image = UIImage(data: data) else { return nil }
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            // Earlier versions of this HOA's logo are no longer needed.
+            // Earlier versions of this HOA's image are no longer needed.
             for old in (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-            where old.lastPathComponent.hasPrefix("\(property.hoaId)-") {
+            where old.lastPathComponent.hasPrefix("\(hoaId)-") {
                 try? FileManager.default.removeItem(at: old)
             }
             try data.write(to: file, options: .atomic)

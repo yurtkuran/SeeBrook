@@ -88,6 +88,31 @@ class SeebrookApiTest {
     }
 
     @Test
+    fun financeSummaryDecodesCents() = runTest {
+        val summary = api(
+            body = """{"propertyId":"p1","currency":"USD","balanceCents":95000,"amountDueCents":95000,
+                "overdueCents":50000,"notYetDueCents":45000,"creditCents":0,"nextDueDate":"2027-01-01",
+                "asOfDate":"2026-11-24","updatedAt":"2026-11-24T15:00:00Z","pendingPaymentsCents":0,
+                "onlinePayments":"available"}""",
+        ).apply { idToken = "tok" }.financeSummary("p1")
+        assertEquals(95000L, summary.balanceCents)
+        assertEquals("2027-01-01", summary.nextDueDate)
+        assertEquals("http://seebrook.test/v1/properties/p1/finance/summary", requests.single().first)
+    }
+
+    @Test
+    fun transactionsSendThePageAndDecodeCarriedForward() = runTest {
+        val page = api(
+            body = """{"transactions":[{"id":"t1","reference":"2026-00001","type":"payment","date":"2026-11-02",
+                "description":"Check payment","amountCents":-45000,"balanceAfterCents":0}],
+                "carriedForward":{"amountCents":12000,"throughDate":"2025-12-31"},"page":1,"pageSize":20,"total":1}""",
+        ).apply { idToken = "tok" }.accountTransactions("p1", page = 1, pageSize = 20)
+        assertEquals(-45000L, page.transactions.single().amountCents)
+        assertEquals(12000L, page.carriedForward?.amountCents)
+        assertEquals("http://seebrook.test/v1/properties/p1/finance/transactions?page=1&pageSize=20", requests.single().first)
+    }
+
+    @Test
     fun signedOutCallsAreNotSent() = runTest {
         val e = assertFailsWith<ApiException> { api(body = "{}").me() }
         assertEquals(ApiException.Kind.UNAUTHORIZED, e.kind)

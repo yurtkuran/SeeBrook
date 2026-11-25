@@ -32,8 +32,8 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 ## Engineering
 
-- [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ → ~~invitations~~ → ~~Firebase sign-in~~ (Sign in with Apple after the paid program) → ~~properties~~ → documents (in review) → balance and history → checkout.
-- [ ] **Revisit the app's screen design** (Home, Account, Documents) with the owner; the first versions follow Stitch loosely.
+- [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ → ~~invitations~~ → ~~Firebase sign-in~~ (Sign in with Apple after the paid program) → ~~properties~~ → ~~documents~~ → balance and history (in review) → checkout.
+- [ ] **Revisit the app's screen design** (Home, Payments, Documents, Account) with the owner; the first versions follow Stitch loosely.
 - [ ] **Malformed `Authorization` header** returns 500 instead of 401 (seen in local testing; small server fix).
 - [ ] **Backend for the app**: push device registration, owner profile edits, account deletion (after the decision).
 - [ ] **M6**: recurring payment plans, cancelling a departing owner's recurring charges at transfer, alert delivery.
@@ -42,10 +42,11 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 ## In review
 
-- Documents in the iOS app: search, categories, PDFs in Quick Look (ED-52).
+- Balance and history in the iOS app: Payments tab, balance on Home (ED-53).
 
 ## Recently closed
 
+- 2026-11-24: Documents in the iOS app merged (ED-52, PR #30).
 - 2026-11-24: Properties in the iOS app merged (ED-51, PR #29).
 - 2026-11-24: Firebase sign-in and the new sign-in screen merged (ED-50, PR #28).
 - 2026-11-24: Development Firebase project created (`seebrook-67b03`).

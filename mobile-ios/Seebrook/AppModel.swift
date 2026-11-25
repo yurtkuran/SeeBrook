@@ -216,6 +216,48 @@ final class AppModel {
         }
     }
 
+    // MARK: Documents (ED-39, ED-52)
+
+    func documentCategories(hoaId: String) async throws -> [DocumentCategoryResponse] {
+        try await signedIn { try await $0.documentCategories(hoaId: hoaId).categories }
+    }
+
+    func documents(hoaId: String, search: String, categoryId: String?, page: Int) async throws -> DocumentsPageResponse {
+        try await signedIn {
+            try await $0.documents(hoaId: hoaId, search: search, categoryId: categoryId,
+                                   page: Int32(page), pageSize: Int32(Self.documentPageSize))
+        }
+    }
+
+    static let documentPageSize = 20
+
+    /// Fetches the PDF through a fresh short-lived link into a temporary folder and returns the
+    /// file. The link is used once and not kept; the caller deletes the file when it is closed.
+    func downloadDocument(hoaId: String, documentId: String) async throws -> URL {
+        let link = try await signedIn { try await $0.documentDownloadLink(hoaId: hoaId, documentId: documentId) }
+        guard let url = URL(string: link.url) else { throw DownloadFailed() }
+        let (downloaded, response) = try await URLSession.shared.download(from: url)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw DownloadFailed() }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent(link.fileName)
+        try FileManager.default.moveItem(at: downloaded, to: file)
+        return file
+    }
+
+    struct DownloadFailed: Error {}
+
+    /// Runs a signed-in API call. An expired sign-in signs out; other errors go to the caller.
+    private func signedIn<T>(_ call: (SeebrookApi) async throws -> T) async throws -> T {
+        do {
+            try await authorize()
+            return try await call(api)
+        } catch where Self.apiError(error)?.kind == .unauthorized {
+            signOut(message: Self.message(for: error))
+            throw error
+        }
+    }
+
     /// The selected property, or the first one when none is selected or it is no longer linked.
     func selectedProperty(in account: Account) -> PropertyResponse? {
         account.properties.first { $0.id == selectedPropertyID } ?? account.properties.first
@@ -292,7 +334,9 @@ final class AppModel {
 
     static func message(for error: Error) -> String {
         guard let e = apiError(error) else {
-            return error is FirebaseSignIn.NotAvailable ? "Your sign-in has expired. Please sign in again." : "Something went wrong. Please try again."
+            if error is FirebaseSignIn.NotAvailable { return "Your sign-in has expired. Please sign in again." }
+            if error is DownloadFailed || error is URLError { return "The document couldn't be downloaded. Please try again." }
+            return "Something went wrong. Please try again."
         }
         switch (e.kind, e.code) {
         case (.network, _):
@@ -311,6 +355,10 @@ final class AppModel {
             return "This invitation was sent to a different email address. Sign in with the address the invitation was sent to."
         case (_, "email_not_verified"):
             return "Please verify your email address first, then try again."
+        case (.notFound, _):
+            return "This is no longer available. Pull down to refresh."
+        case (_, "documents_unavailable"):
+            return "Documents can't be opened right now. Please try again later."
         case (.forbidden, "account_disabled"):
             return "This account has been disabled. Please contact your HOA."
         default:

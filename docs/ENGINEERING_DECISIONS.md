@@ -65,6 +65,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-49 | Accepting invitations in the iOS app by code or pasted link; invitation code format shared with the server (X-01) | Accepted | 2026-11-23 |
 | ED-50 | Firebase sign-in in the iOS app: email and password, Google; verification before invitations; config files kept out of git | Accepted | 2026-11-24 |
 | ED-51 | Properties in the iOS app: Home and Account tabs, a selected property remembered on the device, HOA name in property responses | Accepted | 2026-11-24 |
+| ED-52 | Documents in the iOS app: library tab with search, categories and paging; PDFs opened through a fresh link into a temporary file | Accepted | 2026-11-24 |
 
 ## Pending decisions
 
@@ -663,6 +664,20 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Verification:** `OwnerAccessTest` checks `hoaName` on both endpoints. In the simulator, an owner with two units sees the first, and a remembered selection shows the second.
 - **Alternatives considered:** a property list as the home screen — the design centres on one property, and the pilot owners have one unit each. Joining `tenant.hoa` in the property query — reads another service's schema.
 
+## ED-52 — Documents in the iOS app
+- **Status:** Accepted · **Date:** 2026-11-24 · **Decided by:** engineering, following the owner's Stitch "Document Library" design · **Related:** ED-39, ED-48, ED-51, GA-10, GA-11
+- **Decision:**
+  - **Tab:** a **Documents** tab between Home and Account shows the library of the selected property's HOA (ED-51). The header shows the HOA name; switching property to another HOA reloads it.
+  - **Finding documents:** a search field (sent to the server's `q` after a short pause in typing), category chips from `/document-categories` with "All" first, and the server's default order (newest upload first). Pages of 20 load as the owner scrolls; pull to refresh reloads. The design's "synced for offline view" banner is left out: there is no offline copy.
+  - **Rows:** title, category, file size, and the document's own date ("Dated …") or, without one, the upload date ("Added …").
+  - **Opening:** each tap asks for a new download link (each request is audited, ED-39), downloads the PDF into its own temporary folder, and shows it in Quick Look, whose share button saves or sends it. The link is used once and never stored; the temporary file is deleted when the preview closes.
+  - **Shared client:** `SeebrookApi` gains `documentCategories`, `documents` and `documentDownloadLink`; they only send requests and decode responses (ED-17).
+  - **Messages:** `not_found` (for example, after the owner's last property in the HOA was transferred) and `documents_unavailable` map to plain messages; an expired sign-in signs out, as everywhere.
+  - **Debug builds:** a scripted run can open a tab with `SEEBROOK_TAB` (`home`, `documents`, `account`), alongside the existing `SEEBROOK_SERVER_URL` and `SEEBROOK_DEV_TOKEN` (ED-48).
+- **Verification:** shared client tests cover the query parameters, a blank search and the link request. Locally, with synthetic PDFs, the simulator lists, filters and counts them, and a link fetched with the owner's token downloads the PDF (`200 application/pdf`). Not checked here: tapping a row to open Quick Look (no UI automation).
+- **Limitation (development only):** local download links point at the storage container on `localhost`, so documents open in the simulator but not on an iPhone against the Mac's server.
+- **Alternatives considered:** an in-app PDF view with PDFKit — more code for what Quick Look already does, including sharing. Keeping downloaded PDFs for offline use — would leave copies on the device after access ends (GA-10); revisit if owners ask.
+
 ## Change log
 - 2026-11-13 — Created. Recorded ED-01–ED-12 and pending decisions.
 - 2026-11-13 — Added ED-13 (logical services in one deployable, service map, boundary rules) and ED-14 (action-style use cases). The owner's earlier service map was an illustrative example, not a decision.
@@ -694,3 +709,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-23 — M5 iOS: added ED-49 (invitation screen on first sign-in and for adding a property; code or link accepted; the server reuses the shared invitation code format check under X-01).
 - 2026-11-24 — M5 iOS: added ED-50 (Firebase email/password and Google sign-in, email verification screen, per-configuration Firebase files out of git, `scripts/dev.sh firebase`, Firebase 12.19.3 until Xcode 26.2); sign-in screen built from the owner's Stitch design.
 - 2026-11-24 — M5 iOS: added ED-51 (Home and Account tabs, selected property remembered on the device, `hoaName` in property responses, accent color set to the brand blue).
+- 2026-11-24 — M5 iOS: added ED-52 (Documents tab: search, category chips, paging, PDFs opened through a fresh audited link into a temporary file shown in Quick Look).

@@ -82,6 +82,8 @@ $APP dev-token owner07@example.test --days 7   # token to paste into Seebrook De
 - Server address in the app: `http://localhost:8088` on the simulator; `http://<your-mac>.local:8088` on an iPhone on the same Wi-Fi.
 - A new owner taps **Have an invitation? Set up your account** and pastes the invitation, then chooses a password or Google; or signs in first, then pastes the invitation code or link (from `$APP dev-invite "Unit 08" owner08@example.test`, or the email in Mailpit) on the Invitation screen. The property card's **⋮** menu (or the **Account** tab) switches property and adds another one.
 - Firebase file: `mobile-ios/Config/Firebase/Debug/GoogleService-Info.plist` (from the Firebase console; never committed). Real sign-in needs `scripts/dev.sh firebase`; development tokens (the app's **Developer** button) need plain `scripts/dev.sh`.
+- Documents tab: needs published documents in the local HOA. Upload synthetic PDFs with `$APP upload-document` (Operator CLI); they open in the simulator only (local links point at `localhost`).
+- Scripted simulator run: `SIMCTL_CHILD_SEEBROOK_SERVER_URL=http://localhost:8088 SIMCTL_CHILD_SEEBROOK_DEV_TOKEN=$TOKEN SIMCTL_CHILD_SEEBROOK_TAB=documents xcrun simctl launch booted cc.seebrook.app.dev`.
 - Debug builds are "Seebrook Dev" (`cc.seebrook.app.dev`); release builds are "Seebrook" (`cc.seebrook.app`).
 - No simulators or devices listed? Install the iOS platform in Xcode > Settings > Components.
 

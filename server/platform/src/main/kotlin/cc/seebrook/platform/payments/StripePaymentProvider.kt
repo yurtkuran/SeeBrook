@@ -74,6 +74,119 @@ class StripePaymentProvider(
         )
     }
 
+    /**
+     * Saving a method for recurring plans (ED-59): a Customer on the HOA's connected account (no
+     * personal details; Seebrook IDs as metadata), then a SetupIntent for off-session use limited to
+     * the chosen method. The app's payment sheet collects the details against it.
+     */
+    override fun createSetup(request: CreateSetupRequest): ProviderSetup {
+        val customer = request.customerRef ?: run {
+            val created = post("/v1/customers", request.merchantRef, "seebrook-customer-${request.customerKey}") {
+                request.metadata.forEach { (k, v) -> add("metadata[$k]" to v) }
+            }
+            created.string("id") ?: throw PaymentProviderException("Stripe returned a customer without an ID")
+        }
+        val setup = post("/v1/setup_intents", request.merchantRef, request.idempotencyKey) {
+            add("customer" to customer)
+            add("usage" to "off_session")
+            add("allowed_payment_method_types[]" to methodType(request.method))
+            request.metadata.forEach { (k, v) -> add("metadata[$k]" to v) }
+        }
+        val id = setup.string("id") ?: throw PaymentProviderException("Stripe returned a setup without an ID")
+        val clientSecret = setup.string("client_secret") ?: throw PaymentProviderException("Stripe returned a setup without a client secret")
+        return ProviderSetup(
+            setupId = id,
+            customerRef = customer,
+            clientParams = mapOf(
+                "setupClientSecret" to clientSecret,
+                "publishableKey" to publishableKey,
+                "stripeAccount" to request.merchantRef,
+            ),
+        )
+    }
+
+    override fun lookupSetup(merchantRef: String, setupId: String): SetupSnapshot {
+        require(SETUP_INTENT_ID.matches(setupId)) { "not a SetupIntent ID" }
+        val setup = call(HttpRequest.newBuilder(URI("$base/v1/setup_intents/$setupId?expand%5B%5D=payment_method")).GET(), merchantRef)
+        val status = when (setup.string("status")) {
+            "succeeded" -> SetupStatus.SUCCEEDED
+            "processing", "requires_action" -> SetupStatus.PENDING
+            else -> SetupStatus.NOT_COMPLETED
+        }
+        val pm = setup["payment_method"] as? JsonObject
+        val (method, label) = when (pm?.string("type")) {
+            "card" -> {
+                val card = pm["card"] as? JsonObject
+                val brand = card?.string("display_brand") ?: card?.string("brand") ?: "Card"
+                PaymentMethod.CARD to "${brand.replace('_', ' ').replaceFirstChar { it.uppercase() }} •••• ${card?.string("last4") ?: "????"}"
+            }
+            "us_bank_account" -> {
+                val bank = pm["us_bank_account"] as? JsonObject
+                PaymentMethod.ACH to "${bank?.string("bank_name") ?: "Bank account"} •••• ${bank?.string("last4") ?: "????"}"
+            }
+            else -> null to null
+        }
+        return SetupSnapshot(
+            setupId = setup.string("id") ?: setupId,
+            customerRef = setup.string("customer"),
+            status = if (status == SetupStatus.SUCCEEDED && (pm == null || method == null)) SetupStatus.NOT_COMPLETED else status,
+            methodRef = pm?.string("id"),
+            method = method,
+            label = label?.take(80),
+        )
+    }
+
+    /**
+     * An off-session PaymentIntent confirmed at once on the saved method (ED-59). A decline comes
+     * back as HTTP 402 with the failed PaymentIntent; it is returned as FAILED with its code, and
+     * Stripe still sends `payment_intent.payment_failed`.
+     */
+    override fun chargeSaved(request: SavedChargeRequest): ProviderPayment {
+        require(request.amountCents > 0) { "amount must be positive" }
+        val form = buildList {
+            add("amount" to request.amountCents.toString())
+            add("currency" to request.currency.lowercase())
+            add("customer" to request.customerRef)
+            add("payment_method" to request.methodRef)
+            add("allowed_payment_method_types[]" to methodType(request.method))
+            add("off_session" to "true")
+            add("confirm" to "true")
+            add("description" to request.description)
+            request.metadata.forEach { (k, v) -> add("metadata[$k]" to v) }
+        }
+        val (status, body) = send(
+            HttpRequest.newBuilder(URI("$base/v1/payment_intents"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("Idempotency-Key", request.idempotencyKey)
+                .POST(HttpRequest.BodyPublishers.ofString(form.joinToString("&") { (k, v) -> "${encode(k)}=${encode(v)}" })),
+            request.merchantRef,
+        )
+        if (status == 402) {
+            val error = body?.get("error") as? JsonObject
+            val intent = error?.get("payment_intent") as? JsonObject
+            val id = intent?.string("id") ?: throw PaymentRequestRejectedException("Stripe declined the charge (${error?.string("code") ?: "declined"})")
+            val code = (error.string("decline_code") ?: error.string("code") ?: "declined").take(64)
+            return ProviderPayment(id, ProviderPaymentStatus.FAILED, emptyMap(), code)
+        }
+        val intent = checked(status, body)
+        val id = intent.string("id") ?: throw PaymentProviderException("Stripe returned a payment without an ID")
+        return ProviderPayment(id, status(intent), emptyMap(), failureCode(intent))
+    }
+
+    override fun removeSaved(merchantRef: String, methodRef: String) {
+        require(PAYMENT_METHOD_ID.matches(methodRef)) { "not a PaymentMethod ID" }
+        post("/v1/payment_methods/$methodRef/detach", merchantRef, null) {}
+    }
+
+    private fun post(path: String, merchantRef: String, idempotencyKey: String?, form: MutableList<Pair<String, String>>.() -> Unit): JsonObject {
+        val body = buildList(form).joinToString("&") { (k, v) -> "${encode(k)}=${encode(v)}" }
+        val builder = HttpRequest.newBuilder(URI("$base$path"))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .POST(HttpRequest.BodyPublishers.ofString(body))
+        idempotencyKey?.let { builder.header("Idempotency-Key", it) }
+        return call(builder, merchantRef)
+    }
+
     override fun lookupPayment(merchantRef: String, providerPaymentId: String): ProviderPaymentSnapshot {
         require(PAYMENT_INTENT_ID.matches(providerPaymentId)) { "not a PaymentIntent ID" }
         val intent = call(HttpRequest.newBuilder(URI("$base/v1/payment_intents/$providerPaymentId")).GET(), merchantRef)
@@ -197,6 +310,11 @@ class StripePaymentProvider(
     }
 
     private fun call(builder: HttpRequest.Builder, merchantRef: String): JsonObject {
+        val (status, body) = send(builder, merchantRef)
+        return checked(status, body)
+    }
+
+    private fun send(builder: HttpRequest.Builder, merchantRef: String): Pair<Int, JsonObject?> {
         require(CONNECTED_ACCOUNT.matches(merchantRef)) { "not a Stripe connected account ID" }
         val request = builder
             .header("Authorization", "Bearer $secretKey")
@@ -213,7 +331,10 @@ class StripePaymentProvider(
             throw PaymentProviderException("Interrupted while calling Stripe", e)
         }
         val body = runCatching { Json.parseToJsonElement(response.body()).jsonObject }.getOrNull()
-        val status = response.statusCode()
+        return response.statusCode() to body
+    }
+
+    private fun checked(status: Int, body: JsonObject?): JsonObject {
         if (status in 200..299 && body != null) return body
         // Only Stripe's error code is kept: messages can echo request details.
         val code = (body?.get("error") as? JsonObject)?.string("code") ?: "http_$status"
@@ -253,6 +374,8 @@ class StripePaymentProvider(
 
         private val CONNECTED_ACCOUNT = Regex("^acct_[A-Za-z0-9]{1,64}$")
         private val PAYMENT_INTENT_ID = Regex("^pi_[A-Za-z0-9]{1,128}$")
+        private val SETUP_INTENT_ID = Regex("^seti_[A-Za-z0-9]{1,128}$")
+        private val PAYMENT_METHOD_ID = Regex("^pm_[A-Za-z0-9]{1,128}$")
         private val PAYOUT_ID = Regex("^po_[A-Za-z0-9]{1,128}$")
         private const val MAX_PAGES = 50
         private val PAYOUT_STATUS = mapOf(

@@ -3,7 +3,11 @@ package cc.seebrook.app
 import cc.seebrook.document.DocumentVersionJob
 import cc.seebrook.document.ProcessDocumentVersion
 import cc.seebrook.identity.DeliverInvitation
+import cc.seebrook.finance.OnOwnershipEnded
 import cc.seebrook.finance.PaymentEmailJob
+import cc.seebrook.finance.RecurringEmailJob
+import cc.seebrook.finance.SendRecurringEmail
+import cc.seebrook.property.OwnershipEndedJob
 import cc.seebrook.finance.SendPaymentEmail
 import cc.seebrook.identity.InvitationEmailJob
 import cc.seebrook.identity.UserContacts
@@ -53,10 +57,13 @@ object BackgroundJobs {
         scanner: MalwareScanner? = scanner(config),
     ): JobRunner {
         val handlers = buildMap<String, JobHandler> {
+            // Ending an ownership cancels that owner's recurring payments for the property (GA-08).
+            put(OwnershipEndedJob.KIND, OnOwnershipEnded(db))
             if (email != null) {
                 put(InvitationEmailJob.KIND, DeliverInvitation(db, email, config.inviteLinkBase))
                 val contacts = UserContacts(db)
                 put(PaymentEmailJob.KIND, SendPaymentEmail(db, email) { contacts.find(it) })
+                put(RecurringEmailJob.KIND, SendRecurringEmail(db, email) { contacts.find(it) })
             }
             if (storage != null && scanner != null) {
                 put(DocumentVersionJob.KIND, ProcessDocumentVersion(db, storage, scanner, config.documentMaxBytes))

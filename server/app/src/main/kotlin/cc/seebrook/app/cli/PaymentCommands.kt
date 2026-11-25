@@ -1,6 +1,11 @@
 package cc.seebrook.app.cli
 
 import cc.seebrook.finance.ConfigurePayments
+import cc.seebrook.finance.ConfigureRecurringSchedule
+import cc.seebrook.finance.Frequency
+import cc.seebrook.finance.ListRecurringPlans
+import cc.seebrook.finance.RecurringSchedule
+import cc.seebrook.finance.RunRecurringCharges
 import cc.seebrook.finance.ExportPayments
 import cc.seebrook.finance.RegisterPaymentRows
 import cc.seebrook.finance.FeeRule
@@ -172,6 +177,57 @@ class PaymentCommands(private val db: Database, private val providers: PaymentPr
     }
 
     /** One monitoring pass now (ED-46); the server runs the same pass every few minutes. A system action: no operator. */
+    /** `recurring-schedule` (ED-59): when an HOA's recurring plans charge and which frequencies owners may choose. */
+    fun recurringSchedule(args: List<String>): String {
+        val o = parseOptions(args, setOf("operator", "hoa", "day", "anchor-month", "frequencies", "reason"))
+        val day = o.required("day").toIntOrNull() ?: throw CommandException("--day must be a number from 1 to 28", 2)
+        val anchor = o["anchor-month"]?.let { it.toIntOrNull() ?: throw CommandException("--anchor-month must be a number from 1 to 12", 2) } ?: 1
+        val frequencies = o.required("frequencies").split(',').map { code ->
+            Frequency.fromCode(code) ?: throw CommandException("Unknown frequency '$code' (monthly, quarterly, annual)", 2)
+        }.toSet()
+        return when (val result = ConfigureRecurringSchedule(db)(operator(o.required("operator")), hoaId(o.required("hoa")), day, anchor, frequencies, o["reason"])) {
+            is ConfigureRecurringSchedule.Result.Set -> buildString {
+                appendLine("Recurring schedule saved.")
+                appendLine("  Before: ${result.before?.let(::describe) ?: "not offered"}")
+                append("  After:  ${describe(result.after)}")
+            }
+            is ConfigureRecurringSchedule.Result.Invalid -> throw CommandException(result.message)
+            ConfigureRecurringSchedule.Result.Forbidden -> throw CommandException("Operator may not manage finances in this HOA")
+        }
+    }
+
+    private fun describe(s: RecurringSchedule): String {
+        val month = java.time.Month.of(s.anchorMonth).getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.US)
+        return s.frequencies.sortedBy { it.months }.joinToString("; ") { f ->
+            when (f) {
+                Frequency.MONTHLY -> "monthly on day ${s.dayOfMonth}"
+                Frequency.QUARTERLY -> "quarterly on day ${s.dayOfMonth} from $month"
+                Frequency.ANNUAL -> "annually on $month ${s.dayOfMonth}"
+            }
+        } + " (weekends and bank holidays: next business day)"
+    }
+
+    fun listRecurring(args: List<String>): String {
+        val all = "--all" in args
+        val o = parseOptions(args.filter { it != "--all" }, setOf("operator", "hoa"))
+        return when (val result = ListRecurringPlans(db)(operator(o.required("operator")), hoaId(o.required("hoa")), includeCanceled = all)) {
+            is ListRecurringPlans.Result.Listed -> result.rows.joinToString("\n") { (p, unit) ->
+                val next = p.nextChargeDate?.let { " next $it" }.orEmpty()
+                val reason = p.statusReason?.let { " ($it)" }.orEmpty()
+                "$unit  ${p.frequency.code}  ${Money.format(p.duesCents)} + ${Money.format(p.feeCents)} fee  ${p.method.label}  ${p.status.code}$reason$next"
+            }.ifEmpty { "No recurring plans" }
+            ListRecurringPlans.Result.Forbidden -> throw CommandException("Operator may not manage finances in this HOA")
+        }
+    }
+
+    fun runRecurring(args: List<String>): String {
+        if (args.isNotEmpty()) throw CommandException("run-recurring-charges takes no options", 2)
+        if (providers.names.isEmpty()) return "Payments are disabled; nothing to charge."
+        val s = RunRecurringCharges(db, providers)()
+        return "Recurring charges: ${s.started} started, ${s.submitted} submitted to the provider, ${s.skipped} skipped, " +
+            "${s.waiting} waiting for paused payments, ${s.canceled} plan(s) canceled (owner no longer owns the unit)."
+    }
+
     fun reconcile(args: List<String>): String {
         if (args.isNotEmpty()) throw CommandException("reconcile-payments takes no options", 2)
         if (providers.names.isEmpty()) return "Payments are disabled; nothing to reconcile."

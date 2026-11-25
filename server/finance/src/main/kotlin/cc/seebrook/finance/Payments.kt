@@ -387,7 +387,7 @@ internal sealed interface PaymentAccess {
 }
 
 /** An active owner of the property, with an account, at an HOA that takes payments right now. */
-private fun paymentAccess(tx: DSLContext, actor: UserActor, propertyId: UUID, providers: PaymentProviders): PaymentAccess {
+internal fun paymentAccess(tx: DSLContext, actor: UserActor, propertyId: UUID, providers: PaymentProviders): PaymentAccess {
     val context = when (val access = OwnerFinance.access(tx, actor, propertyId)) {
         is OwnerFinance.Access.Granted -> access.context
         OwnerFinance.Access.NotFound -> return PaymentAccess.NotFound

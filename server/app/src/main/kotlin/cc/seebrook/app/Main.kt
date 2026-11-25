@@ -11,6 +11,7 @@ import cc.seebrook.app.devtools.DevSeed
 import cc.seebrook.app.http.seebrookModule
 import cc.seebrook.db.Migrations
 import cc.seebrook.finance.MonitorPayments
+import cc.seebrook.finance.RunRecurringCharges
 import cc.seebrook.platform.auth.IdTokenVerifier
 import cc.seebrook.platform.config.AppConfig
 import cc.seebrook.platform.config.AuthConfig
@@ -129,6 +130,17 @@ Payments (ED-43):
   dev-payment-event --hoa <slug> --payment <PAY-…> --status <processing|succeeded|failed|canceled> [--failure <code>]
                              Development only: send the simulated provider's webhook to the local server.
 
+Recurring payments (ED-59):
+  recurring-schedule --operator <email> --hoa <slug> --day <1-28> --frequencies <monthly,quarterly,annual>
+                     [--anchor-month <1-12>] --reason <text>
+                             When owners' recurring plans charge: on --day of the month; quarterly plans from
+                             --anchor-month (default January) every third month, annual plans in that month. A
+                             weekend or bank holiday moves to the next business day. Audited.
+  list-recurring --operator <email> --hoa <slug> [--all]
+                             The HOA's recurring plans (--all includes canceled ones).
+  run-recurring-charges      Charge the plans due now and submit any left unsent. `serve` does this every hour.
+                             System action: no operator.
+
 Background jobs:
   run-jobs                   Run queued jobs now (invitation emails, document scans) and exit. `serve` runs them continuously."""
 
@@ -144,7 +156,10 @@ private val FINANCE_COMMANDS = setOf(
     "import-accounts", "import-transactions", "list-balances", "account-statement", "reconcile-balances",
 )
 
-private val PAYMENT_COMMANDS = setOf("configure-payments", "payment-settings", "list-payments", "export-payments", "payout-report", "reconcile-payments", "dev-payment-event")
+private val PAYMENT_COMMANDS = setOf(
+    "configure-payments", "payment-settings", "list-payments", "export-payments", "payout-report", "reconcile-payments", "dev-payment-event",
+    "recurring-schedule", "list-recurring", "run-recurring-charges",
+)
 
 private fun usage(): Nothing {
     System.err.println(USAGE)
@@ -235,6 +250,9 @@ fun main(args: Array<String>) {
                         "export-payments" -> payments.export(operands)
                         "reconcile-payments" -> payments.reconcile(operands)
                         "payout-report" -> payments.payoutReport(operands)
+                        "recurring-schedule" -> payments.recurringSchedule(operands)
+                        "list-recurring" -> payments.listRecurring(operands)
+                        "run-recurring-charges" -> payments.runRecurring(operands)
                         else -> DevPayments.devPaymentEvent(
                             db, config.environment,
                             (config.payments as? PaymentsConfig.Simulated)?.webhookSecret
@@ -314,10 +332,21 @@ fun main(args: Array<String>) {
                     val pass = MonitorPayments(db, payments)
                     PeriodicTask("payments", Duration.ofMinutes(5)) { pass() }.start()
                 }
+                // Recurring charges (ED-59): hourly, so a due date is charged early on its day.
+                val recurring = if (payments.names.isEmpty()) {
+                    null
+                } else {
+                    val run = RunRecurringCharges(db, payments)
+                    PeriodicTask("recurring", Duration.ofHours(1)) {
+                        val summary = run()
+                        if (summary != RunRecurringCharges.Summary(0, 0, 0, 0, 0)) log.info("Recurring charges: {}", summary)
+                    }.start()
+                }
                 try {
                     embeddedServer(Netty, port = config.httpPort) { seebrookModule(db, verifier, BackgroundJobs.storage(config), payments = payments) }
                         .start(wait = true)
                 } finally {
+                    recurring?.close()
                     monitor?.close()
                     worker?.close()
                 }

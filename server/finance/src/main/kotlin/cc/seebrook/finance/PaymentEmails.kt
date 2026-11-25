@@ -100,6 +100,7 @@ class SendPaymentEmail(
             adjustmentAmountCents = adjustment?.amountCents,
             adjustmentDuesCents = adjustment?.duesCents,
             adjustmentReference = adjustment?.reference,
+            recurring = p.recurringPlanId != null,
         )
         return p.userId to { to: Recipient -> PaymentEmail.compose(to, notice, view) }
     }
@@ -120,6 +121,8 @@ internal object PaymentEmail {
         val adjustmentAmountCents: Long?,
         val adjustmentDuesCents: Long?,
         val adjustmentReference: String?,
+        /** Made by a recurring plan (ED-59). */
+        val recurring: Boolean = false,
     )
 
     private val date = DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.US)
@@ -153,8 +156,14 @@ internal object PaymentEmail {
                 text = """
                     |$hello
                     |
-                    |Your payment of ${Money.format(v.totalCents)} for ${v.unit} to ${v.hoaName} did not go through${v.failureReason?.let { " (${it.replace('_', ' ')})" }.orEmpty()}.
-                    |Nothing was credited to your account. You can try again in the Seebrook app, with the same or another payment method.
+                    |Your ${if (v.recurring) "recurring " else ""}payment of ${Money.format(v.totalCents)} for ${v.unit} to ${v.hoaName} did not go through${v.failureReason?.let { " (${it.replace('_', ' ')})" }.orEmpty()}.
+                    |${
+                    if (v.recurring) {
+                        "Nothing was credited to your account. This charge will not be tried again; your recurring payment continues on its next date. You can pay this amount in the Seebrook app, and check or change your saved payment method there."
+                    } else {
+                        "Nothing was credited to your account. You can try again in the Seebrook app, with the same or another payment method."
+                    }
+                    }
                     |
                     |$footer
                 """.trimMargin(),

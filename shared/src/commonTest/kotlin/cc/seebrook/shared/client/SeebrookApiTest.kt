@@ -14,6 +14,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class SeebrookApiTest {
     private val requests = mutableListOf<Pair<String, String?>>()
@@ -94,6 +95,18 @@ class SeebrookApiTest {
             .hoaLogo("p1")
         assertEquals("v2", logo.version)
         assertEquals("http://seebrook.test/v1/properties/p1/hoa-logo", requests.single().first)
+    }
+
+    @Test
+    fun recurringPlanIsSetUpWithTheApprovedFigures() = runTest {
+        val plan = api(
+            body = """{"id":"r1","frequency":"monthly","methodId":"m1","method":"card","methodLabel":"Visa •••• 4242",""" +
+                """"duesCents":45000,"feeCents":1335,"totalCents":46335,"status":"active","nextDueDate":"2027-01-01","nextChargeDate":"2027-01-04"}""",
+        ).apply { idToken = "tok" }
+            .setUpRecurringPlan("p1", cc.seebrook.shared.api.SetUpRecurringPlanRequest("m1", "monthly", 45000, 1335, 46335))
+        assertEquals("2027-01-04", plan.nextChargeDate)
+        assertEquals("http://seebrook.test/v1/properties/p1/recurring/plan", requests.single().first)
+        assertTrue(bodies.single().contains("\"totalCents\":46335"))
     }
 
     @Test

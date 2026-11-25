@@ -55,6 +55,39 @@ class SeebrookApiTest {
     }
 
     @Test
+    fun documentsSendTheQueryAndDecodeThePage() = runTest {
+        val api = api(
+            body = """{"documents":[{"id":"d1","title":"Bylaws","description":"","categoryId":"c1",
+                "categoryName":"Governing","tags":["rules"],"documentDate":null,
+                "uploadedAt":"2026-11-15T12:00:00Z","pageCount":12,"sizeBytes":2400000}],
+                "page":2,"pageSize":20,"total":21}""",
+        ).apply { idToken = "tok" }
+        val page = api.documents("h1", search = "  pool rules ", categoryId = "c1", page = 2, pageSize = 20)
+        assertEquals("Bylaws", page.documents.single().title)
+        assertEquals(21, page.total)
+        assertEquals(
+            "http://seebrook.test/v1/hoas/h1/documents?q=pool+rules&category=c1&page=2&pageSize=20",
+            requests.single().first,
+        )
+    }
+
+    @Test
+    fun documentsLeaveOutABlankSearch() = runTest {
+        api(body = """{"documents":[],"page":1,"pageSize":20,"total":0}""").apply { idToken = "tok" }
+            .documents("h1", search = " ", categoryId = null, page = 1, pageSize = 20)
+        assertEquals("http://seebrook.test/v1/hoas/h1/documents?page=1&pageSize=20", requests.single().first)
+    }
+
+    @Test
+    fun downloadLinksArePosted() = runTest {
+        val link = api(body = """{"url":"https://files.test/x.pdf?sig=1","expiresAt":"2026-11-24T12:05:00Z","fileName":"Bylaws.pdf"}""")
+            .apply { idToken = "tok" }
+            .documentDownloadLink("h1", "d1")
+        assertEquals("Bylaws.pdf", link.fileName)
+        assertEquals("http://seebrook.test/v1/hoas/h1/documents/d1/download-link", requests.single().first)
+    }
+
+    @Test
     fun signedOutCallsAreNotSent() = runTest {
         val e = assertFailsWith<ApiException> { api(body = "{}").me() }
         assertEquals(ApiException.Kind.UNAUTHORIZED, e.kind)

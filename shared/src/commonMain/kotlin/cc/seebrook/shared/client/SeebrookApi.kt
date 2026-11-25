@@ -2,6 +2,9 @@ package cc.seebrook.shared.client
 
 import cc.seebrook.shared.api.AcceptInvitationRequest
 import cc.seebrook.shared.api.AcceptInvitationResponse
+import cc.seebrook.shared.api.DocumentCategoriesResponse
+import cc.seebrook.shared.api.DocumentsPageResponse
+import cc.seebrook.shared.api.DownloadLinkResponse
 import cc.seebrook.shared.api.ErrorResponse
 import cc.seebrook.shared.api.HealthResponse
 import cc.seebrook.shared.api.MeResponse
@@ -19,6 +22,7 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import io.ktor.http.encodeURLPathPart
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
@@ -73,6 +77,43 @@ class SeebrookApi internal constructor(baseUrl: String, engine: HttpClientEngine
     /** The properties the user currently owns. */
     @Throws(ApiException::class, CancellationException::class)
     suspend fun myProperties(): PropertiesResponse = call { http.get("$base/v1/me/properties", it) }
+
+    /** Categories holding at least one document the owner can see in the HOA, with counts (ED-39). */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun documentCategories(hoaId: String): DocumentCategoriesResponse = call {
+        http.get("${hoa(hoaId)}/document-categories", it)
+    }
+
+    /**
+     * One page (from 1) of the HOA's documents, newest upload first. [search] matches title,
+     * description, category and tags; [categoryId] filters by category; null for neither.
+     * Fails with `not_found` when the owner has no property in the HOA (ED-39).
+     */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun documents(hoaId: String, search: String?, categoryId: String?, page: Int, pageSize: Int): DocumentsPageResponse =
+        call {
+            http.get("${hoa(hoaId)}/documents") {
+                it()
+                url.parameters.apply {
+                    search?.trim()?.takeIf(String::isNotEmpty)?.let { q -> append("q", q) }
+                    categoryId?.let { c -> append("category", c) }
+                    append("page", page.toString())
+                    append("pageSize", pageSize.toString())
+                }
+            }
+        }
+
+    /**
+     * A new short-lived link to the document's PDF. Each call issues a link and is audited, so ask
+     * for one each time the owner opens a document and never store it. Fails with `not_found`, or
+     * `documents_unavailable` when storage is down (ED-39).
+     */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun documentDownloadLink(hoaId: String, documentId: String): DownloadLinkResponse = call {
+        http.post("${hoa(hoaId)}/documents/${documentId.encodeURLPathPart()}/download-link", it)
+    }
+
+    private fun hoa(hoaId: String) = "$base/v1/hoas/${hoaId.encodeURLPathPart()}"
 
     private suspend inline fun <reified T> call(
         signedIn: Boolean = true,

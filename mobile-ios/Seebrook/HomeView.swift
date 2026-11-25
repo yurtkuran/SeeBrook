@@ -1,18 +1,33 @@
 import SwiftUI
 import SeebrookShared
 
-/// The signed-in app: tabs as in the Stitch "Home Dashboard" design. Payments and Documents join
-/// as their milestones land (ED-51).
+/// The signed-in app: tabs as in the Stitch "Home Dashboard" design. Payments joins when its
+/// milestone lands (ED-51).
 struct MainView: View {
     let account: AppModel.Account
+    @State private var tab = MainView.startTab
 
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             HomeView(account: account)
                 .tabItem { Label("Home", systemImage: "house") }
+                .tag("home")
+            DocumentsView(account: account)
+                .tabItem { Label("Documents", systemImage: "folder") }
+                .tag("documents")
             AccountView(account: account)
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }
+                .tag("account")
         }
+    }
+
+    /// Debug builds: scripted runs can open a tab with SIMCTL_CHILD_SEEBROOK_TAB (ED-48).
+    private static var startTab: String {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["SEEBROOK_TAB"] ?? "home"
+        #else
+        "home"
+        #endif
     }
 }
 

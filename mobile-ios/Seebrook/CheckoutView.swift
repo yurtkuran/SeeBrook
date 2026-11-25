@@ -1,10 +1,11 @@
 import SwiftUI
 import SeebrookShared
+import StripePaymentSheet
 
 /// Paying dues (ED-43, ED-54), following the Stitch "Review & Pay Dues" design: the owner picks an
 /// amount, the server quotes the fee and total for each method the HOA accepts, the owner approves
 /// one, and the app starts exactly that payment. Card and bank details are never entered here:
-/// the provider's own SDK collects them (X-02).
+/// Stripe's payment sheet collects them (X-02, ED-58).
 struct CheckoutView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -22,6 +23,9 @@ struct CheckoutView: View {
     /// The approval being paid and its idempotency key: retrying the same approval reuses the key,
     /// so a repeated tap or a retry after a dropped connection never pays twice.
     @State private var approval: (Approval, String)?
+    /// Stripe's sheet for the started payment, shown when it is set.
+    @State private var stripeSheet: PaymentSheet?
+    @State private var showingStripeSheet = false
     @FocusState private var amountFocused: Bool
 
     init(property: PropertyResponse, summary: AccountSummaryResponse, onStarted: @escaping () -> Void) {
@@ -48,7 +52,7 @@ struct CheckoutView: View {
                 }
             }
             .disabled(working)
-            .navigationTitle(started == nil ? "Pay dues" : "Payment started")
+            .navigationTitle(started == nil ? "Pay dues" : "Payment submitted")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -65,7 +69,12 @@ struct CheckoutView: View {
             }
         }
         .task { await requote() }
-        .interactiveDismissDisabled(working)
+        .interactiveDismissDisabled(working || showingStripeSheet)
+        .background {
+            if let stripeSheet {
+                Color.clear.paymentSheet(isPresented: $showingStripeSheet, paymentSheet: stripeSheet, onCompletion: stripeFinished)
+            }
+        }
     }
 
     // MARK: Form
@@ -207,13 +216,27 @@ struct CheckoutView: View {
             let payment = try await model.startPayment(propertyId: property.id, option: option,
                                                        amountCents: quote.amountCents, idempotencyKey: key)
             onStarted()
-            guard payment.provider == "simulated" else {
-                // Stripe's payment sheet, which collects the card or bank details, arrives with
-                // the Stripe account (ED-54). The started payment is never charged without it.
-                message = "Entering card or bank details isn't available in this version of the app yet. Nothing was charged."
-                return
+            switch payment.provider {
+            case "simulated":
+                started = payment
+            case "stripe":
+                // The same approval returns the same payment, so after the owner closes the sheet
+                // without paying, Pay opens the sheet for that payment again (ED-58).
+                if payment.clientParams == nil {
+                    // Already submitted (for example, a retry after the sheet finished): nothing left to enter.
+                    started = payment
+                    return
+                }
+                guard let sheet = Self.stripeSheet(for: payment, hoaName: property.hoaName) else {
+                    message = "This payment can't be completed in the app. Nothing was charged."
+                    return
+                }
+                pending = payment
+                stripeSheet = sheet
+                showingStripeSheet = true
+            default:
+                message = "Paying this way isn't available in this version of the app. Nothing was charged."
             }
-            started = payment
         } catch where AppModel.apiCode(error) == "quote_changed" {
             // Nothing was charged: show the new figures and let the owner confirm again.
             working = false
@@ -221,6 +244,44 @@ struct CheckoutView: View {
         } catch {
             // Keep the approval and its key: trying again cannot pay twice.
             message = AppModel.message(for: error)
+        }
+    }
+
+    // MARK: Stripe (ED-58)
+
+    /// The payment the Stripe sheet is completing.
+    @State private var pending: PaymentResponse?
+
+    /// Stripe's payment sheet for a started payment, or nil when the client parameters are incomplete.
+    /// The payment is a direct charge on the HOA's own Stripe account, so the sheet talks to Stripe
+    /// as that account. No Stripe customer is given, so nothing is saved for later payments.
+    private static func stripeSheet(for payment: PaymentResponse, hoaName: String) -> PaymentSheet? {
+        guard let params = payment.clientParams,
+              let clientSecret = params["clientSecret"],
+              let publishableKey = params["publishableKey"],
+              let account = params["stripeAccount"] else { return nil }
+        let client = STPAPIClient(publishableKey: publishableKey)
+        client.stripeAccount = account
+        var configuration = PaymentSheet.Configuration()
+        configuration.apiClient = client
+        configuration.merchantDisplayName = hoaName
+        // Bank payments settle days later; the payment shows as processing until then.
+        configuration.allowsDelayedPaymentMethods = true
+        return PaymentSheet(paymentIntentClientSecret: clientSecret, configuration: configuration)
+    }
+
+    private func stripeFinished(_ result: PaymentSheetResult) {
+        stripeSheet = nil
+        switch result {
+        case .completed:
+            if let pending { started = pending }
+            pending = nil
+            onStarted()
+        case .canceled:
+            // Keep the approval: Pay reopens the sheet for the same payment, never a second one.
+            message = "Payment not completed. Nothing was charged."
+        case .failed(let error):
+            message = error.localizedDescription
         }
     }
 
@@ -251,7 +312,7 @@ struct CheckoutView: View {
     }
 }
 
-/// After a simulated payment started (development only): what happens next.
+/// After a payment was submitted: what happens next.
 private struct StartedView: View {
     let payment: PaymentResponse
 
@@ -266,12 +327,18 @@ private struct StartedView: View {
             }
         }
         Section {
-            Text("Test payment: no money moves. It stays pending until it is completed on the development server.")
-            #if DEBUG
-            Text(verbatim: "$APP dev-payment-event --hoa <slug> --payment \(payment.reference) --status succeeded")
-                .font(.caption.monospaced())
-                .textSelection(.enabled)
-            #endif
+            if payment.provider == "simulated" {
+                Text("Test payment: no money moves. It stays pending until it is completed on the development server.")
+                #if DEBUG
+                Text(verbatim: "$APP dev-payment-event --hoa <slug> --payment \(payment.reference) --status succeeded")
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+                #endif
+            } else if payment.method == "ach" {
+                Text("Bank payments take a few business days. It shows as processing on the Payments tab until it settles, and your balance updates then.")
+            } else {
+                Text("Your card payment is being confirmed. Your balance updates within a minute or two.")
+            }
         } header: {
             Text("What happens next")
         } footer: {

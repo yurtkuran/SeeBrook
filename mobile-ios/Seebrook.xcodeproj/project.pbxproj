@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		5EB000000000000000000084 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 5EB000000000000000000082 /* FirebaseAuth */; };
 		5EB000000000000000000085 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 5EB000000000000000000083 /* GoogleSignIn */; };
+		5EB000000000000000000089 /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = 5EB000000000000000000088 /* StripePaymentSheet */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -35,6 +36,7 @@
 			files = (
 				5EB000000000000000000084 /* FirebaseAuth in Frameworks */,
 				5EB000000000000000000085 /* GoogleSignIn in Frameworks */,
+				5EB000000000000000000089 /* StripePaymentSheet in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -94,6 +96,7 @@
 			packageProductDependencies = (
 				5EB000000000000000000082 /* FirebaseAuth */,
 				5EB000000000000000000083 /* GoogleSignIn */,
+				5EB000000000000000000088 /* StripePaymentSheet */,
 			);
 			productName = Seebrook;
 			productReference = 5EB000000000000000000010 /* Seebrook.app */;
@@ -126,6 +129,7 @@
 			packageReferences = (
 				5EB000000000000000000080 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				5EB000000000000000000081 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				5EB000000000000000000087 /* XCRemoteSwiftPackageReference "stripe-ios-spm" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5EB000000000000000000002 /* Products */;
@@ -286,6 +290,14 @@
 				version = 10.1.0;
 			};
 		};
+		5EB000000000000000000087 /* XCRemoteSwiftPackageReference "stripe-ios-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stripe/stripe-ios-spm";
+			requirement = {
+				kind = exactVersion;
+				version = 26.16.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -298,6 +310,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5EB000000000000000000081 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
 			productName = GoogleSignIn;
+		};
+		5EB000000000000000000088 /* StripePaymentSheet */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5EB000000000000000000087 /* XCRemoteSwiftPackageReference "stripe-ios-spm" */;
+			productName = StripePaymentSheet;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

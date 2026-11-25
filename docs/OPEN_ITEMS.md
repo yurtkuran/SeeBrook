@@ -13,8 +13,7 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 - [ ] **Legal entity**: decide who owns the accounts, domain, Firebase project and Stripe relationship. *Before any paid or production account.*
 - [ ] **Firebase file with Google**: download `GoogleService-Info.plist` again (Google sign-in was enabled after the first download) into `mobile-ios/Config/Firebase/Debug/`.
 - [ ] **Xcode 26.2**: then upgrade Firebase to 13 (ED-50).
-- [ ] **Stripe test-mode account** with Connect and a test connected account (free): needed for the app's Stripe payment sheet (checkout part 2, ED-54).
-- [ ] **Stripe live setup**: platform account, Channel Harbor's connected account, webhook with the 8 events, restricted key. *Before the first real payment.*
+- [ ] **Stripe live setup**: platform account, Channel Harbor's connected account (capabilities `card_payments`, `us_bank_account_ach_payments` and `transfers` only), webhook with the 8 events, restricted key. *Before the first real payment.*
 - [ ] **Card surcharge**: confirm it is allowed and set the amount. *Before real card payments; until then the card fee is $0 or cards are off.*
 - [ ] **Hosting provider**: also settles object storage, alert delivery and backups. *Before TestFlight and the pilot.*
 - [ ] **Brevo account** and `seebrook.cc` domain authentication. *Before the first real invitation.*
@@ -33,7 +32,7 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 ## Engineering
 
-- [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ → ~~invitations~~ → ~~Firebase sign-in~~ (Sign in with Apple after the paid program) → ~~properties~~ → ~~documents~~ → ~~balance and history~~ → checkout (part 1 done; Stripe payment sheet after the Stripe test account).
+- [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ → ~~invitations~~ → ~~Firebase sign-in~~ (Sign in with Apple after the paid program) → ~~properties~~ → ~~documents~~ → ~~balance and history~~ → checkout (part 1 done; Stripe payment sheet in review).
 - [ ] **Revisit the app's screen design** (Documents, Account) with the owner; the first versions follow Stitch loosely. Payments and Home now follow the owner's "Payments - Mobile" and "Home - Mobile" designs (ED-54, ED-56).
 - [ ] **Backend for the app**: push device registration, owner profile edits, account deletion (after the decision).
 - [ ] **M6**: recurring payment plans, cancelling a departing owner's recurring charges at transfer, alert delivery.
@@ -42,10 +41,12 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 ## In review
 
-- Home restyled to the owner's "Home - Mobile" design (ED-56), with each HOA's community photo (ED-57).
+- Checkout part 2: Stripe payment sheet in the app and `scripts/dev.sh stripe` test mode (ED-58).
 
 ## Recently closed
 
+- 2026-11-25: Stripe sandbox set up by the owner (test keys, test connected account limited to card, bank and transfers, Stripe CLI).
+- 2026-11-25: Home restyled with each HOA's community photo merged (ED-56, ED-57, PR #34).
 - 2026-11-25: Malformed `Authorization` header answers 401 instead of 500 (PR #33).
 - 2026-11-25: iOS checkout part 1, the new Payments design and HOA logos merged (ED-54, ED-55, PR #32).
 - 2026-11-24: Balance and history in the iOS app merged (ED-53, PR #31).

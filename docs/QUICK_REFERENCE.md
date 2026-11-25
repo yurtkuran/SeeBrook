@@ -58,6 +58,7 @@ $APP help                       # every command
 - Commands that change data run as a dry run first. Add `--commit --reason "<why>"` to apply.
 - Every change is audited under the operator's email (`--operator <email>`).
 - The pilot HOA is `--hoa channel-harbor`.
+- HOA logo (shown in the app): `$APP set-hoa-logo --operator <email> --hoa channel-harbor --file assets/hoas/channel-harbor/logo.png` (PNG or JPEG, up to 2 MB; `remove-hoa-logo` to clear it).
 
 ### Sign in as a test owner (development only)
 
@@ -84,7 +85,8 @@ $APP dev-token owner07@example.test --days 7   # token to paste into Seebrook De
 - Firebase file: `mobile-ios/Config/Firebase/Debug/GoogleService-Info.plist` (from the Firebase console; never committed). Real sign-in needs `scripts/dev.sh firebase`; development tokens (the app's **Developer** button) need plain `scripts/dev.sh`.
 - Documents tab: needs published documents in the local HOA. Upload synthetic PDFs with `$APP upload-document` (Operator CLI); they open in the simulator only (local links point at `localhost`).
 - Payments tab: needs the synthetic ledger. Load it once with `F=server/app/src/main/resources/dev-fixtures/channel-harbor`, then `$APP import-accounts "${O[@]}" --file $F/accounts.csv --commit --reason "Local fixtures"` and the same with `import-transactions` and `$F/transactions.csv`. Unit 05 owes $950, Unit 12 has a credit.
-- Scripted simulator run: `SIMCTL_CHILD_SEEBROOK_SERVER_URL=http://localhost:8088 SIMCTL_CHILD_SEEBROOK_DEV_TOKEN=$TOKEN SIMCTL_CHILD_SEEBROOK_TAB=documents xcrun simctl launch booted cc.seebrook.app.dev`.
+- Checkout: turn on simulated payments for the local HOA with `configure-payments ... --provider simulated` (Online payments section), then pay in the app and finish it with `$APP dev-payment-event --hoa channel-harbor --payment PAY-… --status succeeded`. Card entry through Stripe comes with the Stripe test account.
+- Scripted simulator run: `SIMCTL_CHILD_SEEBROOK_SERVER_URL=http://localhost:8088 SIMCTL_CHILD_SEEBROOK_DEV_TOKEN=$TOKEN SIMCTL_CHILD_SEEBROOK_TAB=documents xcrun simctl launch booted cc.seebrook.app.dev` (add `SIMCTL_CHILD_SEEBROOK_CHECKOUT=1` with `TAB=payments` to open checkout).
 - Debug builds are "Seebrook Dev" (`cc.seebrook.app.dev`); release builds are "Seebrook" (`cc.seebrook.app`).
 - No simulators or devices listed? Install the iOS platform in Xcode > Settings > Components.
 

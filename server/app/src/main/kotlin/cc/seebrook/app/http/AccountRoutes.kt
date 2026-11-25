@@ -12,10 +12,14 @@ import cc.seebrook.property.PropertyView
 import cc.seebrook.shared.api.AcceptInvitationRequest
 import cc.seebrook.shared.api.AcceptInvitationResponse
 import cc.seebrook.shared.api.ErrorResponse
+import cc.seebrook.shared.api.HoaLogoResponse
 import cc.seebrook.shared.api.MeResponse
 import cc.seebrook.shared.api.PropertiesResponse
 import cc.seebrook.shared.api.PropertyResponse
+import cc.seebrook.platform.storage.ObjectStorage
 import cc.seebrook.tenant.FindHoa
+import cc.seebrook.tenant.HoaLogoLink
+import cc.seebrook.tenant.HoaView
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
@@ -31,18 +35,20 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /** The actions behind the account routes; the HTTP layer only adapts them (ED-14). */
-class AccountActions(db: Database) {
+/** [storage] null means HOA logos answer 503, like documents (ED-38). */
+class AccountActions(db: Database, storage: ObjectStorage? = null) {
     val resolveUser = ResolveUser(db)
     val acceptInvitation = AcceptInvitation(db)
     val getMe = GetMe(db)
     val getMyProperties = GetMyProperties(db)
     val getProperty = GetProperty(db)
     val findHoa = FindHoa(db)
+    val hoaLogoLink = storage?.let { HoaLogoLink(db, it) }
 
-    /** Adds each property's HOA name, which the app shows with the unit (ED-51). */
+    /** Adds each property's HOA name, which the app shows with the unit (ED-51), and logo version (ED-55). */
     fun withHoaNames(properties: List<PropertyView>): List<PropertyResponse> {
         val hoas = findHoa.byIds(properties.map { it.hoaId }.toSet())
-        return properties.map { it.toResponse(hoaName = hoas[it.hoaId]?.name.orEmpty()) }
+        return properties.map { it.toResponse(hoas[it.hoaId]) }
     }
 }
 
@@ -62,10 +68,11 @@ internal suspend fun RoutingCall.requireUser(actions: AccountActions): UserActor
         ResolveUser.Result.Disabled -> null.also { error(HttpStatusCode.Forbidden, "account_disabled") }
     }
 
-private fun PropertyView.toResponse(hoaName: String) = PropertyResponse(
+private fun PropertyView.toResponse(hoa: HoaView?) = PropertyResponse(
     id = id.toString(),
     hoaId = hoaId.toString(),
-    hoaName = hoaName,
+    hoaName = hoa?.name.orEmpty(),
+    hoaLogoVersion = hoa?.logoVersion,
     unitLabel = unitLabel,
     addressLine1 = addressLine1,
     addressLine2 = addressLine2,
@@ -112,6 +119,18 @@ fun Route.accountRoutes(actions: AccountActions) {
                 val property = propertyId?.let { id -> io { actions.getProperty(actor, id) } }
                     ?: return@get call.error(HttpStatusCode.NotFound, "not_found")
                 call.respond(io { actions.withHoaNames(listOf(property)) }.single())
+            }
+
+            // The logo of the property's HOA (ED-55); 404 like the property itself when it may not be seen.
+            get("/properties/{propertyId}/hoa-logo") {
+                val actor = call.requireUser(actions) ?: return@get
+                val link = actions.hoaLogoLink
+                    ?: return@get call.error(HttpStatusCode.ServiceUnavailable, "logo_unavailable")
+                val propertyId = call.parameters["propertyId"]?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+                val property = propertyId?.let { id -> io { actions.getProperty(actor, id) } }
+                    ?: return@get call.error(HttpStatusCode.NotFound, "not_found")
+                val logo = io { link(property.hoaId) } ?: return@get call.error(HttpStatusCode.NotFound, "no_logo")
+                call.respond(HoaLogoResponse(logo.url.toString(), logo.expiresAt.toString(), logo.version))
             }
         }
     }

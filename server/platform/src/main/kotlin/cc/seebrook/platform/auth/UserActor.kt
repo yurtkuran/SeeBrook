@@ -15,12 +15,15 @@ enum class Permission {
     MANAGE_MEMBERSHIP,
     MANAGE_DOCUMENTS,
     MANAGE_FINANCES,
+
+    /** The HOA's own details shown to owners, such as its logo (ED-55). */
+    MANAGE_HOA_PROFILE,
 }
 
 /** Roles from GA-03. All but Root are scoped to one HOA and combinable. */
 enum class Role(val code: String, val permissions: Set<Permission>) {
     ROOT("root", Permission.entries.toSet()),
-    HOA_ADMIN("hoa_admin", setOf(Permission.MANAGE_ROLES, Permission.MANAGE_MEMBERSHIP)),
+    HOA_ADMIN("hoa_admin", setOf(Permission.MANAGE_ROLES, Permission.MANAGE_MEMBERSHIP, Permission.MANAGE_HOA_PROFILE)),
     MEMBERSHIP_ADMIN("membership_admin", setOf(Permission.MANAGE_MEMBERSHIP)),
     DOCUMENT_ADMIN("document_admin", setOf(Permission.MANAGE_DOCUMENTS)),
     FINANCIAL_ADMIN("financial_admin", setOf(Permission.MANAGE_FINANCES)),

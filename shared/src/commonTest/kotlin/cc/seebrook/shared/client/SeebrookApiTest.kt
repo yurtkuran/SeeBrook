@@ -88,6 +88,15 @@ class SeebrookApiTest {
     }
 
     @Test
+    fun hoaLogoLinksAreFetchedForTheProperty() = runTest {
+        val logo = api(body = """{"url":"https://files.test/logo.png?sig=1","expiresAt":"2026-11-25T12:05:00Z","version":"v2"}""")
+            .apply { idToken = "tok" }
+            .hoaLogo("p1")
+        assertEquals("v2", logo.version)
+        assertEquals("http://seebrook.test/v1/properties/p1/hoa-logo", requests.single().first)
+    }
+
+    @Test
     fun financeSummaryDecodesCents() = runTest {
         val summary = api(
             body = """{"propertyId":"p1","currency":"USD","balanceCents":95000,"amountDueCents":95000,
@@ -110,6 +119,45 @@ class SeebrookApiTest {
         assertEquals(-45000L, page.transactions.single().amountCents)
         assertEquals(12000L, page.carriedForward?.amountCents)
         assertEquals("http://seebrook.test/v1/properties/p1/finance/transactions?page=1&pageSize=20", requests.single().first)
+    }
+
+    @Test
+    fun paymentsSendTheApprovedOptionAndKey() = runTest {
+        val api = api(
+            HttpStatusCode.Created,
+            """{"id":"p1","reference":"PAY-1","status":"created","method":"card","amountCents":95000,"feeCents":2785,
+                "totalCents":97785,"currency":"USD","createdAt":"2026-11-24T12:00:00Z","provider":"simulated",
+                "clientParams":{"simulated":"true"}}""",
+        ).apply { idToken = "tok" }
+        val payment = api.startPayment(
+            "prop", cc.seebrook.shared.api.StartPaymentRequest("card", 95000, 2785, 97785, "key-1"),
+        )
+        assertEquals("PAY-1", payment.reference)
+        assertEquals(mapOf("simulated" to "true"), payment.clientParams)
+        assertEquals("http://seebrook.test/v1/properties/prop/payments", requests.single().first)
+        assertEquals(
+            """{"method":"card","amountCents":95000,"feeCents":2785,"totalCents":97785,"idempotencyKey":"key-1"}""",
+            bodies.single(),
+        )
+    }
+
+    @Test
+    fun aChangedQuoteIsAnErrorWithItsCode() = runTest {
+        val api = api(HttpStatusCode.Conflict, """{"error":"quote_changed","quote":{}}""").apply { idToken = "tok" }
+        val e = assertFailsWith<ApiException> {
+            api.startPayment("prop", cc.seebrook.shared.api.StartPaymentRequest("card", 95000, 2785, 97785, "key-1"))
+        }
+        assertEquals("quote_changed", e.code)
+    }
+
+    @Test
+    fun quotesArePostedWithTheAmount() = runTest {
+        val quote = api(
+            body = """{"propertyId":"prop","currency":"USD","amountCents":95000,"amountDueCents":95000,
+                "options":[{"method":"ach","feeCents":0,"totalCents":95000}]}""",
+        ).apply { idToken = "tok" }.paymentQuote("prop", 95000)
+        assertEquals("ach", quote.options.single().method)
+        assertEquals("""{"amountCents":95000}""", bodies.single())
     }
 
     @Test

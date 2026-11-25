@@ -8,8 +8,14 @@ import cc.seebrook.shared.api.DocumentCategoriesResponse
 import cc.seebrook.shared.api.DocumentsPageResponse
 import cc.seebrook.shared.api.DownloadLinkResponse
 import cc.seebrook.shared.api.ErrorResponse
+import cc.seebrook.shared.api.HoaLogoResponse
 import cc.seebrook.shared.api.HealthResponse
 import cc.seebrook.shared.api.MeResponse
+import cc.seebrook.shared.api.PaymentQuoteRequest
+import cc.seebrook.shared.api.PaymentQuoteResponse
+import cc.seebrook.shared.api.PaymentResponse
+import cc.seebrook.shared.api.PaymentsResponse
+import cc.seebrook.shared.api.StartPaymentRequest
 import cc.seebrook.shared.api.PropertiesResponse
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -81,6 +87,13 @@ class SeebrookApi internal constructor(baseUrl: String, engine: HttpClientEngine
     suspend fun myProperties(): PropertiesResponse = call { http.get("$base/v1/me/properties", it) }
 
     /**
+     * A short-lived link to the logo of the property's HOA (ED-55). Ask only when the property has a
+     * `hoaLogoVersion`; fails with `no_logo` when the HOA has none.
+     */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun hoaLogo(propertyId: String): HoaLogoResponse = call { http.get("${property(propertyId)}/hoa-logo", it) }
+
+    /**
      * The property's balance, as computed by the server (ED-42). Fails with `not_found`, or
      * `finance_unavailable` when the HOA has not set up the unit's account yet.
      */
@@ -98,6 +111,38 @@ class SeebrookApi internal constructor(baseUrl: String, engine: HttpClientEngine
             url.parameters.append("pageSize", pageSize.toString())
         }
     }
+
+    /**
+     * The fee and total of paying [amountCents] by each method the HOA accepts (ED-43). Fails with
+     * `invalid_amount`, `payments_unavailable` (paused or not offered) or `finance_unavailable`.
+     */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun paymentQuote(propertyId: String, amountCents: Long): PaymentQuoteResponse = call {
+        http.post("${property(propertyId)}/payments/quote") {
+            it()
+            contentType(ContentType.Application.Json)
+            setBody(PaymentQuoteRequest(amountCents))
+        }
+    }
+
+    /**
+     * Starts a payment for exactly the option the owner approved. Send the same [StartPaymentRequest.idempotencyKey]
+     * when retrying the same approval. Fails with `quote_changed` (nothing charged: quote again and
+     * ask the owner to confirm), `idempotency_conflict`, `method_not_accepted`, `payments_unavailable`,
+     * `provider_unavailable` or `provider_rejected`.
+     */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun startPayment(propertyId: String, request: StartPaymentRequest): PaymentResponse = call {
+        http.post("${property(propertyId)}/payments") {
+            it()
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+    }
+
+    /** The property's online payments, newest first, with their status. */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun payments(propertyId: String): PaymentsResponse = call { http.get("${property(propertyId)}/payments", it) }
 
     private fun property(propertyId: String) = "$base/v1/properties/${propertyId.encodeURLPathPart()}"
 

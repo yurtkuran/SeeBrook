@@ -80,7 +80,7 @@ fun Application.seebrookModule(
     }
 
     routing {
-        val accounts = AccountActions(db)
+        val accounts = AccountActions(db, storage)
         accountRoutes(accounts)
         documentRoutes(accounts, DocumentActions(db, storage))
         financeRoutes(accounts, FinanceActions(db, clock, payments))

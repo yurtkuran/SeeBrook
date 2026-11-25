@@ -3,7 +3,7 @@ import SeebrookShared
 
 /// Payments (ED-53): the selected property's balance and its history, following the Stitch
 /// "Dues & Payments" design. Every figure comes from the server (ED-17); the app only formats
-/// them. Paying joins this screen with checkout.
+/// them. **Make a Payment** opens checkout (ED-54).
 struct PaymentsView: View {
     @Environment(AppModel.self) private var model
     let account: AppModel.Account
@@ -15,6 +15,12 @@ struct PaymentsView: View {
     @State private var nextPage = 1
     @State private var loading = false
     @State private var error: String?
+    @State private var onlinePayments: [PaymentResponse] = []
+    @State private var paying = false
+    #if DEBUG
+    /// Scripted runs can open checkout once the balance loads (SIMCTL_CHILD_SEEBROOK_CHECKOUT=1).
+    @State private var openCheckout = ProcessInfo.processInfo.environment["SEEBROOK_CHECKOUT"] != nil
+    #endif
 
     private var property: PropertyResponse? { model.selectedProperty(in: account) }
 
@@ -23,12 +29,14 @@ struct PaymentsView: View {
             List {
                 if let property, let summary {
                     Section {
-                        BalanceCard(property: property, summary: summary)
+                        BalanceCard(property: property, summary: summary,
+                                    onPay: summary.onlinePayments == "available" ? { paying = true } : nil)
                     }
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
                 }
                 if summary != nil {
+                    if !onlinePayments.isEmpty { online }
                     history
                 }
                 if loading && summary == nil {
@@ -37,13 +45,14 @@ struct PaymentsView: View {
             }
             .overlay { emptyState }
             .refreshable { await reload() }
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    ScreenTitle(hoa: property?.hoaName, title: "Payments")
+            // The balance card names the unit and HOA, so the screen has no title bar (design).
+            .toolbar(.hidden, for: .navigationBar)
+            .task(id: property?.id) { await reload() }
+            .sheet(isPresented: $paying) {
+                if let property, let summary {
+                    CheckoutView(property: property, summary: summary) { Task { await reload() } }
                 }
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .task(id: property?.id) { await reload() }
         }
     }
 
@@ -61,11 +70,24 @@ struct PaymentsView: View {
                 Text("No transactions yet.").foregroundStyle(.secondary)
             }
         } header: {
-            Text("History")
+            SectionHeader("History")
         } footer: {
             if !transactions.isEmpty {
-                Text("Newest first. Quote the reference when you ask your HOA about a transaction.")
+                Text("Newest first. Quote the reference when asking about a transaction.")
             }
+        }
+    }
+
+    /// Recent online payments with their status: processing and failed ones appear only here.
+    private var online: some View {
+        Section {
+            ForEach(onlinePayments.prefix(5), id: \.id) { payment in
+                OnlinePaymentRow(payment: payment)
+            }
+        } header: {
+            SectionHeader("Online payments")
+        } footer: {
+            Text("A payment joins the history once it settles.")
         }
     }
 
@@ -97,7 +119,15 @@ struct PaymentsView: View {
             async let firstPage = model.transactions(propertyId: propertyId, page: 1)
             let loaded = try await model.financeSummary(propertyId: propertyId)
             let page = try await firstPage
+            // Optional: the balance and history still show if the payment list can't load.
+            onlinePayments = (try? await model.payments(propertyId: propertyId)) ?? []
             summary = loaded
+            #if DEBUG
+            if openCheckout, loaded.onlinePayments == "available" {
+                openCheckout = false
+                paying = true
+            }
+            #endif
             transactions = page.transactions
             carriedForward = page.carriedForward
             total = Int(page.total)
@@ -136,46 +166,100 @@ struct BalanceCard: View {
     let property: PropertyResponse
     let summary: AccountSummaryResponse
     var compact = false
+    /// Shown as **Make a Payment** when the HOA takes online payments now.
+    var onPay: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if !compact {
-                Label("\(property.unitLabel) · \(property.hoaName)", systemImage: "mappin.and.ellipse")
-                    .font(.caption.weight(.medium))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(.tint.opacity(0.1), in: Capsule())
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(summary.creditCents > 0 ? "CREDIT" : "CURRENT BALANCE")
-                    .font(.caption.weight(.semibold))
-                    .tracking(1)
-                    .foregroundStyle(.secondary)
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(Money.text(summary.creditCents > 0 ? summary.creditCents : summary.amountDueCents, summary.currency))
-                        .font(compact ? .title.weight(.bold) : .largeTitle.weight(.bold))
-                    Text(summary.currency).font(.caption).foregroundStyle(.secondary)
+        if compact {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    caption
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        amount.font(.title.weight(.bold))
+                        Text(summary.currency).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
+                status
+                pending
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.background, in: .rect(cornerRadius: 12))
+        } else {
+            full
+        }
+    }
+
+    /// The Payments card, following the owner's "Payments - Mobile" design (2026-11-25): the HOA
+    /// logo and unit on top, then the balance and its status centered, then the Pay button.
+    private var full: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                HStack(spacing: 4) {
+                    Image(systemName: "mappin.and.ellipse").font(.caption.weight(.semibold))
+                    Text("\(property.unitLabel) · \(property.hoaName)")
+                }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color(red: 0.23, green: 0.51, blue: 0.96))
+                    .padding(.horizontal, 44)
+                HoaLogo(property: property).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            VStack(spacing: 6) {
+                caption
+                amount.font(.system(size: 38, weight: .bold)).monospacedDigit()
             }
             status
-            if !compact {
-                breakdown
-            }
-            if summary.pendingPaymentsCents > 0 {
-                Label("\(Money.text(summary.pendingPaymentsCents, summary.currency)) in payments is processing. The balance changes once it settles.",
-                      systemImage: "clock")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            if !compact, let updated = summary.updatedAt.flatMap({ try? Date($0, strategy: .iso8601) }) {
-                Text("Updated by your HOA \(updated.formatted(date: .abbreviated, time: .omitted))")
+            breakdown
+            pending.frame(maxWidth: .infinity, alignment: .leading)
+            payment
+            if let updated = summary.updatedAt.flatMap({ try? Date($0, strategy: .iso8601) }) {
+                Text("Updated \(updated.formatted(date: .abbreviated, time: .omitted))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: .rect(cornerRadius: 12))
+        .frame(maxWidth: .infinity)
+        .background(.background, in: .rect(cornerRadius: 14))
+    }
+
+    private var caption: some View {
+        Text(summary.creditCents > 0 ? "CREDIT" : "CURRENT BALANCE")
+            .font(.caption.weight(.semibold))
+            .tracking(1)
+            .foregroundStyle(.secondary)
+    }
+
+    private var amount: Text {
+        Text(Money.text(summary.creditCents > 0 ? summary.creditCents : summary.amountDueCents, summary.currency))
+    }
+
+    @ViewBuilder private var pending: some View {
+        if summary.pendingPaymentsCents > 0 {
+            Label("\(Money.text(summary.pendingPaymentsCents, summary.currency)) in payments is processing. The balance changes once it settles.",
+                  systemImage: "clock")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder private var payment: some View {
+        if let onPay {
+            Button(action: onPay) {
+                HStack(spacing: 8) {
+                    Image(systemName: "creditcard")
+                    Text("Make a Payment")
+                }
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.roundedRectangle(radius: 12))
+        } else if summary.onlinePayments == "unavailable" {
+            Label("Online payments are paused for now. Your balance and history are still up to date.", systemImage: "pause.circle")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
     }
 
     /// Overdue first, then the next due date, else paid up.
@@ -234,15 +318,19 @@ private struct TransactionRow: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 // Kotlin's `description` is `description_` in Swift (NSObject has its own).
-                Text(transaction.description_).lineLimit(2)
+                Text(transaction.description_)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                // Two lines, so the reference owners are asked to quote is never cut off.
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
                 Text(amount)
-                    .font(.body.monospacedDigit())
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
                     .foregroundStyle(transaction.amountCents < 0 ? .green : .primary)
                 Text("Balance \(Money.text(transaction.balanceAfterCents, "USD"))")
                     .font(.caption2.monospacedDigit())
@@ -279,14 +367,94 @@ private struct TransactionRow: View {
     }
 }
 
+/// One online payment: method, reference, total and status.
+private struct OnlinePaymentRow: View {
+    let payment: PaymentResponse
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(CheckoutView.methodName(payment.method)) payment")
+                    .font(.subheadline.weight(.semibold))
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+                if let reason = payment.failureReason, payment.status == "failed" {
+                    Text(reason).font(.caption).foregroundStyle(.red)
+                }
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(Money.text(payment.totalCents, payment.currency))
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                Text(status.0)
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(status.1.opacity(0.15), in: Capsule())
+                    .foregroundStyle(status.1)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var detail: String {
+        let date = (try? Date(payment.createdAt, strategy: .iso8601))?.formatted(date: .abbreviated, time: .omitted)
+        return [date, payment.reference].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private var status: (String, Color) {
+        switch payment.status {
+        case "succeeded": ("Paid", .green)
+        case "processing": ("Processing", .orange)
+        case "failed": ("Failed", .red)
+        case "canceled": ("Canceled", .secondary)
+        default: ("Started", .blue)
+        }
+    }
+}
+
+/// The HOA's logo on the balance card (ED-55); a neutral tile while it loads or when the HOA has none.
+private struct HoaLogo: View {
+    @Environment(AppModel.self) private var model
+    let property: PropertyResponse
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 36, height: 36)
+                    .clipShape(.rect(cornerRadius: 8))
+                    .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
+            } else {
+                Image(systemName: "building.2.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.tint)
+                    .frame(width: 36, height: 36)
+                    .background(.tint.opacity(0.1), in: .rect(cornerRadius: 8))
+            }
+        }
+        .accessibilityHidden(true)
+        .task(id: "\(property.id) \(property.hoaLogoVersion ?? "")") {
+            image = await model.hoaLogo(for: property)
+        }
+    }
+}
+
 /// Everything before the current owners' period, as one line (ED-42).
 private struct CarriedForwardRow: View {
     let carriedForward: CarriedForwardResponse
 
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.turn.left.up")
+                .foregroundStyle(.tint)
+                .frame(width: 40, height: 40)
+                .background(.tint.opacity(0.1), in: .rect(cornerRadius: 8))
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Balance carried forward")
+                Text("Balance carried forward").font(.subheadline.weight(.semibold))
                 if let through = Day.date(carriedForward.throughDate) {
                     Text("Through \(through.formatted(date: .abbreviated, time: .omitted))")
                         .font(.caption)
@@ -294,8 +462,22 @@ private struct CarriedForwardRow: View {
                 }
             }
             Spacer()
-            Text(Money.text(carriedForward.amountCents, "USD")).font(.body.monospacedDigit())
+            Text(Money.text(carriedForward.amountCents, "USD"))
+                .font(.subheadline.weight(.semibold).monospacedDigit())
         }
+    }
+}
+
+/// A list section header in the designs' style: small, uppercase, gray.
+struct SectionHeader: View {
+    let title: String
+    init(_ title: String) { self.title = title }
+
+    var body: some View {
+        Text(title)
+            .font(.footnote.weight(.semibold))
+            .textCase(.uppercase)
+            .foregroundStyle(.secondary)
     }
 }
 

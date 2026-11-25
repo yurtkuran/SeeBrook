@@ -80,6 +80,10 @@ Admin commands (audited; ED-31):
                              Move every document of a category, archived ones included, to another.
   delete-category --operator <email> --hoa <slug> --name <name> --reason <text>
                              Only when it holds no documents, archived ones included.
+  set-hoa-logo --operator <email> --hoa <slug> --file <logo.png|.jpg>
+                             The logo owners see in the app (ED-55): PNG or JPEG up to 2 MB, at least 32 pixels a
+                             side. Stored as a PNG at most 512 pixels a side; replaces the current logo.
+  remove-hoa-logo --operator <email> --hoa <slug>
 
 Finance (positive balances are owed, negative are credits):
   import-accounts --operator <email> --hoa <slug> --file <csv> [--commit --reason <text>]
@@ -127,7 +131,7 @@ private val ADMIN_COMMANDS = setOf(
     "send-invitations", "resend-invitation", "revoke-invitation", "list-invitations", "transfer-ownership",
     "create-category", "list-categories", "upload-document", "list-documents",
     "replace-document", "update-document", "archive-document", "restore-document", "list-versions", "restore-version",
-    "rename-category", "reassign-documents", "delete-category",
+    "rename-category", "reassign-documents", "delete-category", "set-hoa-logo", "remove-hoa-logo",
 )
 
 private val FINANCE_COMMANDS = setOf(
@@ -264,6 +268,8 @@ fun main(args: Array<String>) {
                         "rename-category" -> admin.renameCategory(operands)
                         "reassign-documents" -> admin.reassignDocuments(operands)
                         "delete-category" -> admin.deleteCategory(operands)
+                        "set-hoa-logo" -> admin.setHoaLogo(operands)
+                        "remove-hoa-logo" -> admin.removeHoaLogo(operands)
                         else -> admin.revokeRole(operands)
                     }
                 } catch (e: CommandException) {

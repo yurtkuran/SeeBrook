@@ -36,6 +36,7 @@
 - Monitor processor outages, webhook/reconciliation backlog and notification failures; HOA-isolated payment suspension, alerting, safe automatic recovery except explicit admin hold. During outage, show read-only history and disable payment actions.
 
 ## Cross-cutting
+- Each HOA can add its logo to personalize the owner app; owners see their HOA's logo (owner requirement, 2026-11-25; ED-55).
 - Backend authorization plus database tenant isolation (e.g. PostgreSQL RLS where appropriate), scoped jobs/imports/storage/webhooks/audit.
 - Encrypted automated backups and PITR where supported; RPO <=1 hour, RTO <=24 hours, >=30 days recoverable retention. Back up PDFs/configuration; test restores and reconcile processor records.
 - No unnecessary infrastructure for 32-unit pilot; preserve secure future multi-HOA architecture.

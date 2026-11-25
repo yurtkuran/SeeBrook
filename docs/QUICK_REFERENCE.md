@@ -86,7 +86,8 @@ $APP dev-token owner07@example.test --days 7   # token to paste into Seebrook De
 - Firebase file: `mobile-ios/Config/Firebase/Debug/GoogleService-Info.plist` (from the Firebase console; never committed). Real sign-in needs `scripts/dev.sh firebase`; development tokens (the app's **Developer** button) need plain `scripts/dev.sh`.
 - Documents tab: needs published documents in the local HOA. Upload synthetic PDFs with `$APP upload-document` (Operator CLI); they open in the simulator only (local links point at `localhost`).
 - Payments tab: needs the synthetic ledger. Load it once with `F=server/app/src/main/resources/dev-fixtures/channel-harbor`, then `$APP import-accounts "${O[@]}" --file $F/accounts.csv --commit --reason "Local fixtures"` and the same with `import-transactions` and `$F/transactions.csv`. Unit 05 owes $950, Unit 12 has a credit.
-- Checkout: turn on simulated payments for the local HOA with `configure-payments ... --provider simulated` (Online payments section), then pay in the app and finish it with `$APP dev-payment-event --hoa channel-harbor --payment PAY-… --status succeeded`. Card entry through Stripe comes with the Stripe test account.
+- Checkout (simulated): turn on simulated payments for the local HOA with `configure-payments ... --provider simulated` (Online payments section), then pay in the app and finish it with `$APP dev-payment-event --hoa channel-harbor --payment PAY-… --status succeeded`.
+- Checkout (Stripe test mode): `scripts/dev.sh stripe` (see Stripe test mode below), then pay in the app with Stripe's test card `4242 4242 4242 4242` (any future date, any CVC and ZIP), or Bank transfer with the "Test Institution". The payment settles by itself through the forwarded webhook.
 - Scripted simulator run: `SIMCTL_CHILD_SEEBROOK_SERVER_URL=http://localhost:8088 SIMCTL_CHILD_SEEBROOK_DEV_TOKEN=$TOKEN SIMCTL_CHILD_SEEBROOK_TAB=documents xcrun simctl launch booted cc.seebrook.app.dev` (add `SIMCTL_CHILD_SEEBROOK_CHECKOUT=1` with `TAB=payments` to open checkout).
 - Debug builds are "Seebrook Dev" (`cc.seebrook.app.dev`); release builds are "Seebrook" (`cc.seebrook.app`).
 - No simulators or devices listed? Install the iOS platform in Xcode > Settings > Components.
@@ -114,7 +115,7 @@ $APP reconcile-balances "${O[@]}" --file $OUT/expected-balances.csv      # shoul
 
 ## Payments
 
-- Locally the provider is **simulated**: no money moves. In production it is Stripe Connect, so each HOA's own Stripe account receives the money.
+- Locally the provider is **simulated** (no money moves), or Stripe test mode with `scripts/dev.sh stripe`. In production it is Stripe Connect, so each HOA's own Stripe account receives the money.
 - Fee per method: `off` (not accepted), `0` (HOA absorbs), `3%`, `1.50` or `2.9%+0.30`. Only the dues ever reach the owner's balance.
 - Statuses: `created` → `processing` (bank payments take days) → `succeeded`, or `failed` / `canceled`. Only `succeeded` changes the balance; `processing` shows as pending.
 - Refunds are issued in the Stripe dashboard. Seebrook records them, and returned or disputed payments, as their own lines: `PAY-…-R1` refund, `-R1F` refund failed, `-D1` returned or disputed, `-D1W` reinstated. The original payment never changes. Only the dues part changes the balance; the owner's fee does not.
@@ -132,6 +133,18 @@ $APP payout-report "${O[@]}" --from 2026-11-01 --to 2026-11-30 [--out $OUT/payou
 $APP reconcile-payments                               # one reconciliation pass now (no operator; the server runs it every 5 minutes)
 $APP dev-payment-event --hoa channel-harbor --payment PAY-XXXXXXXX --status succeeded   # local only: play the provider
 ```
+
+### Stripe test mode (local)
+
+```bash
+scripts/dev.sh stripe            # API with Stripe test mode; webhooks forwarded by the Stripe CLI
+tail -f build/stripe-listen.log  # events Stripe sent and the server's answers
+```
+
+- Needs `.env.stripe` in the repository root (never committed): `SEEBROOK_STRIPE_SECRET_KEY=sk_test_…`, `SEEBROOK_STRIPE_PUBLISHABLE_KEY=pk_test_…`, `SEEBROOK_STRIPE_TEST_ACCOUNT=acct_…` (Stripe dashboard, sandbox: Developers → API keys; Connect → Accounts → the test account). Live keys are refused.
+- Needs the Stripe CLI: `brew install stripe/stripe-cli/stripe`, then `stripe login` (the Seebrook sandbox).
+- Sets the local Channel Harbor to the test account (card 2.9% + $0.30, bank no fee) as `root@example.test`; set `SEEBROOK_DEV_OPERATOR` to use another local Root operator. Plain `scripts/dev.sh` afterwards needs `configure-payments ... --provider simulated` again.
+- An HOA's Stripe account needs only the capabilities `card_payments`, `us_bank_account_ach_payments` and `transfers`.
 
 ### Online payments into the register (monthly, before converting)
 

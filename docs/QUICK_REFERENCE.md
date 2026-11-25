@@ -1,7 +1,7 @@
 ---
 title: Seebrook quick reference
 tags: [seebrook, reference]
-updated: 2026-11-24
+updated: 2026-11-25
 ---
 
 # Seebrook quick reference
@@ -59,6 +59,7 @@ $APP help                       # every command
 - Every change is audited under the operator's email (`--operator <email>`).
 - The pilot HOA is `--hoa channel-harbor`.
 - HOA logo (shown in the app): `$APP set-hoa-logo --operator <email> --hoa channel-harbor --file assets/hoas/channel-harbor/logo.png` (PNG or JPEG, up to 2 MB; `remove-hoa-logo` to clear it).
+- HOA community photo (Home screen): `$APP set-hoa-photo --operator <email> --hoa channel-harbor --file <photo.jpg>` (PNG or JPEG, up to 10 MB; landscape works best; `remove-hoa-photo` to clear it). Use a photo the HOA may use.
 
 ### Sign in as a test owner (development only)
 

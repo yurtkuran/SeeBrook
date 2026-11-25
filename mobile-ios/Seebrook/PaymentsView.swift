@@ -171,20 +171,20 @@ struct BalanceCard: View {
 
     var body: some View {
         if compact {
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
+            // Home, following the owner's "Home - Mobile" design (2026-11-25): the balance and its
+            // status centered; the property card above already names the unit and HOA.
+            VStack(spacing: 12) {
+                VStack(spacing: 6) {
                     caption
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        amount.font(.title.weight(.bold))
-                        Text(summary.currency).font(.caption).foregroundStyle(.secondary)
-                    }
+                    amount.font(.system(size: 38, weight: .bold)).monospacedDigit()
                 }
                 status
-                pending
+                pending.multilineTextAlignment(.center)
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background, in: .rect(cornerRadius: 12))
+            .padding(.horizontal, 20)
+            .padding(.vertical, 18)
+            .frame(maxWidth: .infinity)
+            .background(.background, in: .rect(cornerRadius: 14))
         } else {
             full
         }
@@ -194,16 +194,7 @@ struct BalanceCard: View {
     /// logo and unit on top, then the balance and its status centered, then the Pay button.
     private var full: some View {
         VStack(spacing: 14) {
-            ZStack {
-                HStack(spacing: 4) {
-                    Image(systemName: "mappin.and.ellipse").font(.caption.weight(.semibold))
-                    Text("\(property.unitLabel) · \(property.hoaName)")
-                }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color(red: 0.23, green: 0.51, blue: 0.96))
-                    .padding(.horizontal, 44)
-                HoaLogo(property: property).frame(maxWidth: .infinity, alignment: .leading)
-            }
+            PropertyHeader(property: property)
             VStack(spacing: 6) {
                 caption
                 amount.font(.system(size: 38, weight: .bold)).monospacedDigit()
@@ -412,7 +403,26 @@ private struct OnlinePaymentRow: View {
     }
 }
 
-/// The HOA's logo on the balance card (ED-55); a neutral tile while it loads or when the HOA has none.
+/// The top row of the Home property card and the Payments balance card: the HOA logo on the
+/// left and "Unit · HOA" centered.
+struct PropertyHeader: View {
+    let property: PropertyResponse
+
+    var body: some View {
+        ZStack {
+            HStack(spacing: 4) {
+                Image(systemName: "mappin.and.ellipse").font(.caption.weight(.semibold))
+                Text("\(property.unitLabel) · \(property.hoaName)")
+            }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color(red: 0.23, green: 0.51, blue: 0.96))
+                .padding(.horizontal, 44)
+            HoaLogo(property: property).frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// The HOA's logo on the property header (ED-55); a neutral tile while it loads or when the HOA has none.
 private struct HoaLogo: View {
     @Environment(AppModel.self) private var model
     let property: PropertyResponse

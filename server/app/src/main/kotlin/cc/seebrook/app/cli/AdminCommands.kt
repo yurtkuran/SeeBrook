@@ -30,9 +30,9 @@ import cc.seebrook.platform.auth.UserActor
 import cc.seebrook.platform.db.Database
 import cc.seebrook.platform.storage.ObjectStorage
 import cc.seebrook.tenant.FindHoa
-import cc.seebrook.tenant.LogoImage
-import cc.seebrook.tenant.RemoveHoaLogo
-import cc.seebrook.tenant.SetHoaLogo
+import cc.seebrook.tenant.HoaImageKind
+import cc.seebrook.tenant.RemoveHoaImage
+import cc.seebrook.tenant.SetHoaImage
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDate
@@ -291,31 +291,34 @@ class AdminCommands(
         }
     }
 
-    fun setHoaLogo(args: List<String>): String {
+    /** `set-hoa-logo` (ED-55) and `set-hoa-photo` (ED-57). */
+    fun setHoaImage(kind: HoaImageKind, args: List<String>): String {
         val o = parseOptions(args, setOf("operator", "hoa", "file"))
         val storage = requireStorage()
         val path = Path.of(o.required("file"))
         if (!Files.isRegularFile(path)) throw CommandException("No file at $path")
-        if (Files.size(path) > LogoImage.MAX_UPLOAD_BYTES) throw CommandException("File is larger than 2 MB")
+        if (Files.size(path) > kind.maxUploadBytes) throw CommandException("File is larger than ${kind.maxUploadMegabytes} MB")
         val hoaId = requireNotNull(hoaId(o.required("hoa")))
-        return when (val result = SetHoaLogo(db, storage)(operator(o.required("operator")), hoaId, Files.readAllBytes(path))) {
-            is SetHoaLogo.Result.Set -> "Logo set (${result.width} × ${result.height} pixels, ${result.bytes / 1024} KB). " +
+        return when (val result = SetHoaImage(db, storage, kind)(operator(o.required("operator")), hoaId, Files.readAllBytes(path))) {
+            is SetHoaImage.Result.Set -> "${kind.label} set (${result.width} × ${result.height} pixels, ${result.bytes / 1024} KB). " +
                 "Owners see it the next time the app loads their properties."
-            is SetHoaLogo.Result.InvalidImage -> throw CommandException("Not set: ${result.reason}")
-            SetHoaLogo.Result.HoaNotFound -> throw CommandException("No HOA '${o["hoa"]}'")
-            SetHoaLogo.Result.Forbidden -> throw CommandException("Operator may not manage this HOA's profile")
+            is SetHoaImage.Result.InvalidImage -> throw CommandException("Not set: ${result.reason}")
+            SetHoaImage.Result.HoaNotFound -> throw CommandException("No HOA '${o["hoa"]}'")
+            SetHoaImage.Result.Forbidden -> throw CommandException("Operator may not manage this HOA's profile")
         }
     }
 
-    fun removeHoaLogo(args: List<String>): String {
+    /** `remove-hoa-logo` and `remove-hoa-photo`. */
+    fun removeHoaImage(kind: HoaImageKind, args: List<String>): String {
         val o = parseOptions(args, setOf("operator", "hoa"))
         val storage = requireStorage()
         val hoaId = requireNotNull(hoaId(o.required("hoa")))
-        return when (RemoveHoaLogo(db, storage)(operator(o.required("operator")), hoaId)) {
-            RemoveHoaLogo.Result.Removed -> "Logo removed; the app shows its placeholder."
-            RemoveHoaLogo.Result.NoLogo -> "The HOA has no logo; nothing changed."
-            RemoveHoaLogo.Result.HoaNotFound -> throw CommandException("No HOA '${o["hoa"]}'")
-            RemoveHoaLogo.Result.Forbidden -> throw CommandException("Operator may not manage this HOA's profile")
+        return when (RemoveHoaImage(db, storage, kind)(operator(o.required("operator")), hoaId)) {
+            RemoveHoaImage.Result.Removed -> "${kind.label} removed; " +
+                (if (kind == HoaImageKind.LOGO) "the app shows its placeholder." else "Home shows no photo.")
+            RemoveHoaImage.Result.NoImage -> "The HOA has no ${kind.code}; nothing changed."
+            RemoveHoaImage.Result.HoaNotFound -> throw CommandException("No HOA '${o["hoa"]}'")
+            RemoveHoaImage.Result.Forbidden -> throw CommandException("Operator may not manage this HOA's profile")
         }
     }
 

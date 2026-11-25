@@ -19,6 +19,7 @@ import cc.seebrook.platform.config.PaymentsConfig
 import cc.seebrook.platform.db.Database
 import cc.seebrook.platform.jobs.JobWorker
 import cc.seebrook.platform.jobs.PeriodicTask
+import cc.seebrook.tenant.HoaImageKind
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import org.slf4j.LoggerFactory
@@ -84,6 +85,11 @@ Admin commands (audited; ED-31):
                              The logo owners see in the app (ED-55): PNG or JPEG up to 2 MB, at least 32 pixels a
                              side. Stored as a PNG at most 512 pixels a side; replaces the current logo.
   remove-hoa-logo --operator <email> --hoa <slug>
+  set-hoa-photo --operator <email> --hoa <slug> --file <photo.jpg|.png>
+                             The community photo on the app's Home screen (ED-57): PNG or JPEG up to 10 MB, at
+                             least 320 pixels a side; landscape works best. Stored as a JPEG at most 1600 pixels
+                             a side; replaces the current photo.
+  remove-hoa-photo --operator <email> --hoa <slug>
 
 Finance (positive balances are owed, negative are credits):
   import-accounts --operator <email> --hoa <slug> --file <csv> [--commit --reason <text>]
@@ -131,7 +137,7 @@ private val ADMIN_COMMANDS = setOf(
     "send-invitations", "resend-invitation", "revoke-invitation", "list-invitations", "transfer-ownership",
     "create-category", "list-categories", "upload-document", "list-documents",
     "replace-document", "update-document", "archive-document", "restore-document", "list-versions", "restore-version",
-    "rename-category", "reassign-documents", "delete-category", "set-hoa-logo", "remove-hoa-logo",
+    "rename-category", "reassign-documents", "delete-category", "set-hoa-logo", "remove-hoa-logo", "set-hoa-photo", "remove-hoa-photo",
 )
 
 private val FINANCE_COMMANDS = setOf(
@@ -268,8 +274,10 @@ fun main(args: Array<String>) {
                         "rename-category" -> admin.renameCategory(operands)
                         "reassign-documents" -> admin.reassignDocuments(operands)
                         "delete-category" -> admin.deleteCategory(operands)
-                        "set-hoa-logo" -> admin.setHoaLogo(operands)
-                        "remove-hoa-logo" -> admin.removeHoaLogo(operands)
+                        "set-hoa-logo" -> admin.setHoaImage(HoaImageKind.LOGO, operands)
+                        "remove-hoa-logo" -> admin.removeHoaImage(HoaImageKind.LOGO, operands)
+                        "set-hoa-photo" -> admin.setHoaImage(HoaImageKind.PHOTO, operands)
+                        "remove-hoa-photo" -> admin.removeHoaImage(HoaImageKind.PHOTO, operands)
                         else -> admin.revokeRole(operands)
                     }
                 } catch (e: CommandException) {

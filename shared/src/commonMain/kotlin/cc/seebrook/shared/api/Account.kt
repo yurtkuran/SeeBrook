@@ -29,11 +29,13 @@ data class PropertyResponse(
     val postalCode: String,
     /** Changes whenever the HOA's logo changes; null when the HOA has no logo (ED-55). */
     val hoaLogoVersion: String? = null,
+    /** Changes whenever the HOA's community photo changes; null when it has none (ED-57). */
+    val hoaPhotoVersion: String? = null,
 )
 
-/** A short-lived link to the HOA's logo, a PNG (ED-55). */
+/** A short-lived link to the HOA's logo (a PNG, ED-55) or community photo (a JPEG, ED-57). */
 @Serializable
-data class HoaLogoResponse(val url: String, val expiresAt: String, val version: String)
+data class HoaImageResponse(val url: String, val expiresAt: String, val version: String)
 
 @Serializable
 data class PropertiesResponse(val properties: List<PropertyResponse>)

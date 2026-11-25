@@ -26,7 +26,14 @@ object TestAuth {
     val verifier: IdTokenVerifier =
         IdTokenVerifier.withKeys(PROJECT_ID, ImmutableJWKSet<SecurityContext>(JWKSet(key.toPublicJWK())))
 
-    fun token(uid: String, email: String?, emailVerified: Boolean = true, signInMethod: String = "password"): String {
+    /** [signedInAgo]: how long ago the user last actively signed in (`auth_time`). */
+    fun token(
+        uid: String,
+        email: String?,
+        emailVerified: Boolean = true,
+        signInMethod: String = "password",
+        signedInAgo: Duration = Duration.ZERO,
+    ): String {
         val now = Instant.now()
         val claims = JWTClaimsSet.Builder()
             .issuer(IdTokenVerifier.issuerFor(PROJECT_ID))
@@ -34,7 +41,7 @@ object TestAuth {
             .subject(uid)
             .issueTime(Date.from(now))
             .expirationTime(Date.from(now.plus(Duration.ofHours(1))))
-            .claim("auth_time", now.epochSecond)
+            .claim("auth_time", now.minus(signedInAgo).epochSecond)
             .apply { if (email != null) claim("email", email) }
             .claim("email_verified", emailVerified)
             .claim("firebase", mapOf("sign_in_provider" to signInMethod))

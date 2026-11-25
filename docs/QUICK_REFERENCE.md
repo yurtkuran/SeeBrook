@@ -134,6 +134,19 @@ $APP reconcile-payments                               # one reconciliation pass 
 $APP dev-payment-event --hoa channel-harbor --payment PAY-XXXXXXXX --status succeeded   # local only: play the provider
 ```
 
+### Recurring payments
+
+```bash
+$APP recurring-schedule "${O[@]}" --day 1 --frequencies monthly,quarterly,annual --reason "Monthly dues on the 1st"
+$APP list-recurring "${O[@]}" [--all]      # plans, status and next charge day
+$APP run-recurring-charges                   # charge what is due now (serve does this every hour)
+```
+
+- Plans charge on the HOA's day; weekends and bank holidays move to the next business day. Quarterly plans charge in January, April, July and October (`--anchor-month` changes the first month); annual plans in January.
+- One charge per plan and date, ever. A failed charge is not retried: the owner is emailed and the plan continues next time. A fee change holds plans until each owner approves the new total. While payments are paused, a due charge waits up to 5 days, then is skipped.
+- Transferring a unit cancels the departing owner's plans.
+- Locally, recurring payments settle like any simulated payment: `$APP dev-payment-event --hoa channel-harbor --payment PAY-… --status succeeded`.
+
 ### Stripe test mode (local)
 
 ```bash

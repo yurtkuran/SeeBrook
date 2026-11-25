@@ -3,6 +3,13 @@ package cc.seebrook.shared.client
 import cc.seebrook.shared.api.AcceptInvitationRequest
 import cc.seebrook.shared.api.AcceptInvitationResponse
 import cc.seebrook.shared.api.AccountSummaryResponse
+import cc.seebrook.shared.api.CompleteMethodSetupRequest
+import cc.seebrook.shared.api.MethodSetupResponse
+import cc.seebrook.shared.api.RecurringPlanResponse
+import cc.seebrook.shared.api.RecurringResponse
+import cc.seebrook.shared.api.SavedMethodResponse
+import cc.seebrook.shared.api.SetUpRecurringPlanRequest
+import cc.seebrook.shared.api.StartMethodSetupRequest
 import cc.seebrook.shared.api.AccountTransactionsPageResponse
 import cc.seebrook.shared.api.DocumentCategoriesResponse
 import cc.seebrook.shared.api.DocumentsPageResponse
@@ -24,7 +31,9 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.bearerAuth
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.put
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -150,6 +159,64 @@ class SeebrookApi internal constructor(baseUrl: String, engine: HttpClientEngine
     /** The property's online payments, newest first, with their status. */
     @Throws(ApiException::class, CancellationException::class)
     suspend fun payments(propertyId: String): PaymentsResponse = call { http.get("${property(propertyId)}/payments", it) }
+
+    /** Recurring payments for the property: frequencies offered, saved methods and the owner's plan (ED-59). */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun recurring(propertyId: String): RecurringResponse = call { http.get("${property(propertyId)}/recurring", it) }
+
+    /**
+     * Starts saving a payment method (`card` or `ach`); the provider's SDK then collects the details
+     * with the returned client parameters. Fails with `reauthentication_required` unless the owner
+     * signed in within the last 10 minutes, `recurring_not_offered`, `method_not_accepted`,
+     * `payments_unavailable` or `provider_unavailable`.
+     */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun startMethodSetup(propertyId: String, method: String): MethodSetupResponse = call {
+        http.post("${property(propertyId)}/recurring/methods/setup") {
+            it()
+            contentType(ContentType.Application.Json)
+            setBody(StartMethodSetupRequest(method))
+        }
+    }
+
+    /**
+     * Saves the method once the SDK finished; the server checks with the provider. Fails with
+     * `setup_pending` (still being verified), `setup_not_completed` or `not_found`.
+     */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun completeMethodSetup(propertyId: String, setupId: String): SavedMethodResponse = call {
+        http.post("${property(propertyId)}/recurring/methods/complete") {
+            it()
+            contentType(ContentType.Application.Json)
+            setBody(CompleteMethodSetupRequest(setupId))
+        }
+    }
+
+    /** Removes a saved method; fails with `method_in_use` while a plan uses it. */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun removeSavedMethod(propertyId: String, methodId: String) {
+        call<Unit> { http.delete("${property(propertyId)}/recurring/methods/${methodId.encodeURLPathPart()}", it) }
+    }
+
+    /**
+     * Sets up or changes the owner's plan with the figures they approved. Fails with
+     * `quote_changed` (nothing changed: fetch the new fee and ask again), `reauthentication_required`,
+     * `frequency_not_offered`, `method_not_found`, `method_not_accepted` or `payments_unavailable`.
+     */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun setUpRecurringPlan(propertyId: String, request: SetUpRecurringPlanRequest): RecurringPlanResponse = call {
+        http.put("${property(propertyId)}/recurring/plan") {
+            it()
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+    }
+
+    /** `pause`, `resume` (needs a recent sign-in) or `cancel` the owner's plan. */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun changeRecurringPlan(propertyId: String, action: String): RecurringPlanResponse = call {
+        http.post("${property(propertyId)}/recurring/plan/${action.encodeURLPathPart()}", it)
+    }
 
     private fun property(propertyId: String) = "$base/v1/properties/${propertyId.encodeURLPathPart()}"
 

@@ -26,25 +26,26 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 ## Decisions pending
 
 - [ ] **Account deletion**: proposed to remove identity and contact details and keep the ledger and audit history. Needs owner approval and a legal check. *Before App Store submission.*
-- [ ] **Privacy policy and terms**: who writes and publishes them (Seebrook or the HOA); include any payment authorization wording for the app (ED-54). *Before App Store submission.*
+- [ ] **Privacy policy and terms**: who writes and publishes them (Seebrook or the HOA); include any payment authorization wording for the app (ED-54) and the recurring payment terms (ED-59). *Before App Store submission.*
 - [ ] **Android owners in the pilot**: start with iOS owners only, or wait for Android. *Before M7.*
 - [ ] **Root MFA**: enforce TOTP for the root administrator. *Before a second HOA joins.*
 
 ## Engineering
 
-- [ ] **M5 iOS app**: ~~shared module and Xcode setup~~ → ~~invitations~~ → ~~Firebase sign-in~~ (Sign in with Apple after the paid program) → ~~properties~~ → ~~documents~~ → ~~balance and history~~ → checkout (part 1 done; Stripe payment sheet in review).
 - [ ] **Revisit the app's screen design** (Documents, Account) with the owner; the first versions follow Stitch loosely. Payments and Home now follow the owner's "Payments - Mobile" and "Home - Mobile" designs (ED-54, ED-56).
 - [ ] **Backend for the app**: push device registration, owner profile edits, account deletion (after the decision).
-- [ ] **M6**: recurring payment plans, cancelling a departing owner's recurring charges at transfer, alert delivery.
-- [ ] **M7 pilot**: production setup (including the Channel Harbor logo and photo, `set-hoa-logo`, `set-hoa-photo`), backup restore drill, security review, owner onboarding.
-- [ ] **Later**: financial admin web portal (before a second HOA), Android app.
+- [ ] **M6**: ~~recurring plans, saved methods, charge run, cancellation at transfer (server, in review)~~ → app screens for saved methods and autopay → alert delivery.
+- [ ] **M7 pilot**: production setup (including the Channel Harbor logo and photo, `set-hoa-logo`, `set-hoa-photo`, and its recurring schedule, `recurring-schedule`), backup restore drill, security review, owner onboarding.
+- [ ] **Later**: Sign in with Apple (after the paid Apple Developer Program), financial admin web portal (before a second HOA), Android app.
 
 ## In review
 
-- Checkout part 2: Stripe payment sheet in the app and `scripts/dev.sh stripe` test mode (ED-58).
+- M6 part 1: recurring payments on the server (ED-59).
 
 ## Recently closed
 
+- 2026-11-25: Checkout part 2, Stripe payment sheet and Stripe test mode merged (ED-58, PR #35); the M5 iOS app is complete.
+- 2026-11-25: Channel Harbor's dues schedule decided: monthly on the 1st; owners may choose monthly, quarterly or annual plans.
 - 2026-11-25: Stripe sandbox set up by the owner (test keys, test connected account limited to card, bank and transfers, Stripe CLI).
 - 2026-11-25: Home restyled with each HOA's community photo merged (ED-56, ED-57, PR #34).
 - 2026-11-25: Malformed `Authorization` header answers 401 instead of 500 (PR #33).

@@ -73,9 +73,71 @@ class ProviderPayment(
     val providerPaymentId: String,
     val status: ProviderPaymentStatus,
     val clientParams: Map<String, String>,
+    /** A short provider code when a charge of a saved method was declined at once (ED-59). */
+    val failureCode: String? = null,
 ) {
     override fun toString(): String = "ProviderPayment(providerPaymentId=$providerPaymentId, status=$status, clientParams=****)"
 }
+
+/**
+ * Asks a provider to start saving a payment method for later charges (ED-59). [customerRef] is the
+ * owner's existing provider customer, or null to create one ([customerKey] makes that creation
+ * idempotent). [metadata] carries Seebrook IDs only.
+ */
+data class CreateSetupRequest(
+    val merchantRef: String,
+    val method: PaymentMethod,
+    val customerRef: String?,
+    val customerKey: String,
+    val idempotencyKey: String,
+    val metadata: Map<String, String>,
+)
+
+/** A started setup: the provider's IDs, and what its app SDK needs to collect the details (X-02). */
+class ProviderSetup(
+    val setupId: String,
+    val customerRef: String,
+    val clientParams: Map<String, String>,
+) {
+    override fun toString(): String = "ProviderSetup(setupId=$setupId, clientParams=****)"
+}
+
+enum class SetupStatus {
+    /** The method is saved and can be charged. */
+    SUCCEEDED,
+
+    /** Still being verified (e.g. bank micro-deposits). */
+    PENDING,
+
+    /** The owner has not finished, or it was refused; nothing is saved. */
+    NOT_COMPLETED,
+}
+
+/**
+ * A setup as the provider holds it. When [status] is SUCCEEDED, [methodRef] is the saved method,
+ * [method] its kind and [label] how the owner recognizes it (brand or bank and the last four digits).
+ */
+data class SetupSnapshot(
+    val setupId: String,
+    val customerRef: String?,
+    val status: SetupStatus,
+    val methodRef: String?,
+    val method: PaymentMethod?,
+    val label: String?,
+)
+
+/** Charges a saved method without the owner present, for exactly [amountCents] (ED-59). */
+data class SavedChargeRequest(
+    val merchantRef: String,
+    val customerRef: String,
+    val methodRef: String,
+    val method: PaymentMethod,
+    val amountCents: Long,
+    val currency: String,
+    val idempotencyKey: String,
+    val description: String,
+    val metadata: Map<String, String>,
+)
 
 /**
  * A payment as the provider holds it right now, for reconciliation (ED-46): the same facts a
@@ -206,6 +268,21 @@ interface PaymentProvider {
 
     /** Checks an incoming webhook's signature and age, then normalizes it. */
     fun verifyWebhook(payload: ByteArray, header: (String) -> String?): WebhookVerification
+
+    /** Starts saving a payment method for the owner (ED-59); idempotent on the key. */
+    fun createSetup(request: CreateSetupRequest): ProviderSetup
+
+    /** The setup as the provider holds it now; the app's word that it finished is never trusted. */
+    fun lookupSetup(merchantRef: String, setupId: String): SetupSnapshot
+
+    /**
+     * Charges a saved method; idempotent on the key. A decline returns a FAILED payment with its
+     * code (the provider still sends its event); a refused request throws [PaymentRequestRejectedException].
+     */
+    fun chargeSaved(request: SavedChargeRequest): ProviderPayment
+
+    /** Stops the provider keeping a saved method. */
+    fun removeSaved(merchantRef: String, methodRef: String)
 }
 
 /** The providers this deployment can use, by name. Empty when payments are disabled. */

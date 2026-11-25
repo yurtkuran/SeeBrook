@@ -123,6 +123,37 @@ class SimulatedPaymentProvider(
         return payload to WebhookSignature.header(payload, webhookSecret, clock)
     }
 
+    /**
+     * Saving always works and needs no state: the method kind is part of the setup ID, and the
+     * saved method and customer are derived from it.
+     */
+    override fun createSetup(request: CreateSetupRequest): ProviderSetup {
+        if (!request.merchantRef.startsWith(MERCHANT_PREFIX)) throw PaymentRequestRejectedException("unknown simulated merchant")
+        val customer = request.customerRef ?: ("sim_cus_" + hash("${request.merchantRef}/${request.customerKey}"))
+        val setupId = "sim_setup_${request.method.code}_" + hash("${request.merchantRef}/${request.idempotencyKey}")
+        return ProviderSetup(setupId, customer, mapOf("simulated" to "true"))
+    }
+
+    override fun lookupSetup(merchantRef: String, setupId: String): SetupSnapshot {
+        val method = PaymentMethod.entries.firstOrNull { setupId.startsWith("sim_setup_${it.code}_") }
+            ?: return SetupSnapshot(setupId, null, SetupStatus.NOT_COMPLETED, null, null, null)
+        val label = if (method == PaymentMethod.CARD) "Test card •••• 4242" else "Test bank •••• 6789"
+        return SetupSnapshot(setupId, null, SetupStatus.SUCCEEDED, "sim_pm_" + hash(setupId), method, label)
+    }
+
+    /** Accepted as submitted; the outcome arrives as a webhook, like any simulated payment. */
+    override fun chargeSaved(request: SavedChargeRequest): ProviderPayment {
+        require(request.amountCents > 0) { "amount must be positive" }
+        if (!request.merchantRef.startsWith(MERCHANT_PREFIX)) throw PaymentRequestRejectedException("unknown simulated merchant")
+        if (!request.methodRef.startsWith("sim_pm_")) throw PaymentRequestRejectedException("unknown simulated payment method")
+        return ProviderPayment(paymentId(request.merchantRef, request.idempotencyKey), ProviderPaymentStatus.PROCESSING, emptyMap())
+    }
+
+    override fun removeSaved(merchantRef: String, methodRef: String) {}
+
+    private fun hash(text: String) =
+        MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).take(12).joinToString("") { "%02x".format(it) }
+
     override fun toString(): String = "SimulatedPaymentProvider(secret=****)"
 
     companion object {

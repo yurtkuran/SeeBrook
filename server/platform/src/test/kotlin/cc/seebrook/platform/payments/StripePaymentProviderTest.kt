@@ -245,4 +245,84 @@ class StripePaymentProviderTest {
         val good = WebhookSignature.sign(payload, now.epochSecond, "whsec_test")
         verify(payload, "t=${now.epochSecond},v1=deadbeef,v1=$good").shouldBeInstanceOf<WebhookVerification.Verified>()
     }
+
+    @Test
+    fun `saving a method creates the owner's customer once, then an off-session setup for that method only`() {
+        val replies = ArrayDeque(
+            listOf(
+                200 to """{"id":"cus_1","object":"customer"}""",
+                200 to """{"id":"seti_1","object":"setup_intent","status":"requires_payment_method","client_secret":"seti_1_secret_x"}""",
+            ),
+        )
+        reply = { replies.removeFirst() }
+        val setup = stripe.createSetup(
+            CreateSetupRequest("acct_hoa1", PaymentMethod.ACH, null, "user-1", "seebrook-setup-1", mapOf("seebrook_user_id" to "user-1")),
+        )
+        setup.setupId shouldBe "seti_1"
+        setup.customerRef shouldBe "cus_1"
+        setup.clientParams shouldBe mapOf("setupClientSecret" to "seti_1_secret_x", "publishableKey" to "pk_test_platform", "stripeAccount" to "acct_hoa1")
+        setup.toString() shouldNotContain "secret_x"
+        calls.map { it.path } shouldBe listOf("/v1/customers", "/v1/setup_intents")
+        calls[0].headers["Idempotency-Key"] shouldBe "seebrook-customer-user-1"
+        calls[0].form shouldBe listOf("metadata[seebrook_user_id]" to "user-1")
+        calls[1].headers["Stripe-Account"] shouldBe "acct_hoa1"
+        calls[1].form.take(3) shouldBe listOf("customer" to "cus_1", "usage" to "off_session", "allowed_payment_method_types[]" to "us_bank_account")
+
+        // An owner who already has a customer gets no second one.
+        calls.clear()
+        reply = { 200 to """{"id":"seti_2","object":"setup_intent","status":"requires_payment_method","client_secret":"seti_2_secret_y"}""" }
+        stripe.createSetup(CreateSetupRequest("acct_hoa1", PaymentMethod.CARD, "cus_1", "user-1", "seebrook-setup-2", emptyMap()))
+        calls.map { it.path } shouldBe listOf("/v1/setup_intents")
+    }
+
+    @Test
+    fun `a finished setup is read back from Stripe with only the brand or bank and the last four digits`() {
+        reply = {
+            200 to """{"id":"seti_1","status":"succeeded","customer":"cus_1",
+                "payment_method":{"id":"pm_1","type":"card","card":{"brand":"visa","display_brand":"visa","last4":"4242"}}}"""
+        }
+        stripe.lookupSetup("acct_hoa1", "seti_1") shouldBe SetupSnapshot("seti_1", "cus_1", SetupStatus.SUCCEEDED, "pm_1", PaymentMethod.CARD, "Visa •••• 4242")
+        calls.single().query shouldBe listOf("expand[]" to "payment_method")
+
+        reply = { 200 to """{"id":"seti_2","status":"requires_action","customer":"cus_1","payment_method":"pm_2"}""" }
+        stripe.lookupSetup("acct_hoa1", "seti_2").status shouldBe SetupStatus.PENDING
+        reply = { 200 to """{"id":"seti_3","status":"requires_payment_method","customer":"cus_1","payment_method":null}""" }
+        stripe.lookupSetup("acct_hoa1", "seti_3").status shouldBe SetupStatus.NOT_COMPLETED
+        shouldThrow<IllegalArgumentException> { stripe.lookupSetup("acct_hoa1", "../v1/balance") }
+    }
+
+    @Test
+    fun `a saved method is charged off-session, and a decline comes back as a failed payment with its code`() {
+        val charge = SavedChargeRequest(
+            merchantRef = "acct_hoa1", customerRef = "cus_1", methodRef = "pm_1", method = PaymentMethod.CARD,
+            amountCents = 45_500, currency = "USD", idempotencyKey = "seebrook-payment-9", description = "HOA dues PAY-9 (recurring)",
+            metadata = mapOf("seebrook_payment_id" to "p-9"),
+        )
+        reply = { 200 to """{"id":"pi_9","status":"succeeded","last_payment_error":null}""" }
+        stripe.chargeSaved(charge).let { it.providerPaymentId shouldBe "pi_9"; it.status shouldBe ProviderPaymentStatus.SUCCEEDED }
+        calls.single().headers["Idempotency-Key"] shouldBe "seebrook-payment-9"
+        calls.single().form.toMap().let {
+            it["customer"] shouldBe "cus_1"
+            it["payment_method"] shouldBe "pm_1"
+            it["off_session"] shouldBe "true"
+            it["confirm"] shouldBe "true"
+            it["amount"] shouldBe "45500"
+            it["allowed_payment_method_types[]"] shouldBe "card"
+        }
+
+        reply = {
+            402 to """{"error":{"type":"card_error","code":"card_declined","decline_code":"insufficient_funds","message":"Your card has insufficient funds.",
+                "payment_intent":{"id":"pi_10","status":"requires_payment_method"}}}"""
+        }
+        stripe.chargeSaved(charge).let {
+            it.providerPaymentId shouldBe "pi_10"
+            it.status shouldBe ProviderPaymentStatus.FAILED
+            it.failureCode shouldBe "insufficient_funds"
+        }
+
+        reply = { 400 to """{"error":{"type":"invalid_request_error","code":"resource_missing"}}""" }
+        shouldThrow<PaymentRequestRejectedException> { stripe.chargeSaved(charge) }
+        reply = { 503 to """{"error":{"type":"api_error"}}""" }
+        shouldThrow<PaymentProviderException> { stripe.chargeSaved(charge) }
+    }
 }

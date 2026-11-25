@@ -98,6 +98,7 @@ fun Application.seebrookModule(
         documentRoutes(accounts, DocumentActions(db, storage))
         financeRoutes(accounts, FinanceActions(db, clock, payments))
         paymentRoutes(accounts, PaymentActions(db, payments))
+        recurringRoutes(accounts, RecurringActions(db, payments, clock))
         get("/health/live") {
             call.respond(HealthResponse(HealthStatus.UP))
         }

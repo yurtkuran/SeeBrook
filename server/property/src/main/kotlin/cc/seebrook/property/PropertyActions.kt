@@ -3,6 +3,9 @@ package cc.seebrook.property
 import cc.seebrook.db.generated.property.Tables.OWNERSHIP
 import cc.seebrook.platform.auth.UserActor
 import cc.seebrook.platform.db.Database
+import cc.seebrook.platform.jobs.Jobs
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.jooq.Condition
 import org.jooq.DSLContext
 import org.jooq.Record
@@ -129,18 +132,39 @@ object Ownerships {
 
     /**
      * Ends these users' active ownership of the property now. History is kept: the row gets an
-     * end time and is never deleted (GA-07). Returns how many ownerships ended.
+     * end time and is never deleted (GA-07). Each ended ownership queues an [OwnershipEndedJob] in
+     * the same transaction, so other services act on it durably (GA-08: recurring payments are
+     * canceled). Returns how many ownerships ended.
      */
-    fun end(tx: DSLContext, hoaId: UUID, propertyId: UUID, userIds: Collection<UUID>): Int =
-        if (userIds.isEmpty()) {
-            0
-        } else {
-            tx.update(OWNERSHIP)
-                .set(OWNERSHIP.ENDED_AT, DSL.currentOffsetDateTime())
-                .where(OWNERSHIP.HOA_ID.eq(hoaId))
-                .and(OWNERSHIP.PROPERTY_ID.eq(propertyId))
-                .and(OWNERSHIP.USER_ID.`in`(userIds))
-                .and(OWNERSHIP.ENDED_AT.isNull)
-                .execute()
-        }
+    fun end(tx: DSLContext, hoaId: UUID, propertyId: UUID, userIds: Collection<UUID>): Int {
+        if (userIds.isEmpty()) return 0
+        val ended = tx.update(OWNERSHIP)
+            .set(OWNERSHIP.ENDED_AT, DSL.currentOffsetDateTime())
+            .where(OWNERSHIP.HOA_ID.eq(hoaId))
+            .and(OWNERSHIP.PROPERTY_ID.eq(propertyId))
+            .and(OWNERSHIP.USER_ID.`in`(userIds))
+            .and(OWNERSHIP.ENDED_AT.isNull)
+            .returning(OWNERSHIP.ID, OWNERSHIP.USER_ID)
+            .fetch()
+        ended.forEach { OwnershipEndedJob.enqueue(tx, hoaId, propertyId, requireNotNull(it.userId), requireNotNull(it.id)) }
+        return ended.size
+    }
+}
+
+/**
+ * "An owner's ownership of a property ended" (ED-59), queued in the transaction that ends it. The
+ * finance service cancels that owner's recurring payments for the property (GA-08); the property
+ * service knows nothing about them (ED-13).
+ */
+object OwnershipEndedJob {
+    const val KIND = "property.ownership_ended"
+
+    fun enqueue(tx: DSLContext, hoaId: UUID, propertyId: UUID, userId: UUID, ownershipId: UUID): Boolean =
+        Jobs.enqueue(
+            tx, KIND, hoaId, "ownership-ended:$ownershipId",
+            buildJsonObject {
+                put("propertyId", propertyId.toString())
+                put("userId", userId.toString())
+            },
+        )
 }

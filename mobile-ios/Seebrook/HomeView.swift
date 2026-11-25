@@ -1,17 +1,19 @@
 import SwiftUI
 import SeebrookShared
 
-/// The signed-in app: tabs as in the Stitch "Home Dashboard" design. Payments joins when its
-/// milestone lands (ED-51).
+/// The signed-in app: tabs as in the Stitch "Home Dashboard" design (ED-51).
 struct MainView: View {
     let account: AppModel.Account
     @State private var tab = MainView.startTab
 
     var body: some View {
         TabView(selection: $tab) {
-            HomeView(account: account)
+            HomeView(account: account, showPayments: { tab = "payments" })
                 .tabItem { Label("Home", systemImage: "house") }
                 .tag("home")
+            PaymentsView(account: account)
+                .tabItem { Label("Payments", systemImage: "creditcard") }
+                .tag("payments")
             DocumentsView(account: account)
                 .tabItem { Label("Documents", systemImage: "folder") }
                 .tag("documents")
@@ -31,11 +33,14 @@ struct MainView: View {
     }
 }
 
-/// Home: a greeting and the selected property, with a menu to switch property or add one.
+/// Home: a greeting, the selected property (with a menu to switch property or add one) and its
+/// balance, which opens Payments.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     let account: AppModel.Account
+    let showPayments: () -> Void
     @State private var addingProperty = false
+    @State private var summary: AccountSummaryResponse?
 
     var body: some View {
         NavigationStack {
@@ -44,6 +49,21 @@ struct HomeView: View {
                     if let property = model.selectedProperty(in: account) {
                         greeting(unit: property.unitLabel)
                         PropertyCard(property: property, menu: propertyMenu)
+                        if let summary {
+                            Button(action: showPayments) {
+                                VStack(alignment: .leading, spacing: 0) {
+                                    BalanceCard(property: property, summary: summary, compact: true)
+                                    Label("View payments", systemImage: "chevron.right")
+                                        .labelStyle(TrailingIconLabelStyle())
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(.tint)
+                                        .padding(.horizontal, 20)
+                                        .padding(.bottom, 16)
+                                }
+                                .background(.background, in: .rect(cornerRadius: 12))
+                            }
+                            .buttonStyle(.plain)
+                        }
                     } else {
                         greeting(unit: nil)
                         noProperties
@@ -52,9 +72,15 @@ struct HomeView: View {
                 .padding(20)
             }
             .background(Color(.systemGroupedBackground))
-            .refreshable { await model.refresh() }
+            .refreshable {
+                await model.refresh()
+                await loadSummary()
+            }
+            .task(id: model.selectedProperty(in: account)?.id) { await loadSummary() }
             .toolbar {
-                ToolbarItem(placement: .principal) { header }
+                ToolbarItem(placement: .principal) {
+                    ScreenTitle(hoa: model.selectedProperty(in: account)?.hoaName, title: "Home")
+                }
             }
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $addingProperty) {
@@ -63,14 +89,14 @@ struct HomeView: View {
         }
     }
 
-    private var header: some View {
-        VStack(spacing: 0) {
-            Text((model.selectedProperty(in: account)?.hoaName ?? "Seebrook").uppercased())
-                .font(.caption.weight(.semibold))
-                .tracking(1.2)
-                .foregroundStyle(.tint)
-            Text("Home").font(.headline)
+    /// The balance is a summary here; when it can't be loaded, Home simply leaves it out and
+    /// Payments shows why.
+    private func loadSummary() async {
+        guard let propertyId = model.selectedProperty(in: account)?.id else {
+            summary = nil
+            return
         }
+        summary = try? await model.financeSummary(propertyId: propertyId)
     }
 
     private func greeting(unit: String?) -> some View {
@@ -172,5 +198,15 @@ enum PropertyAddress {
         [p.addressLine1, p.addressLine2, "\(p.city), \(p.stateCode) \(p.postalCode)"]
             .compactMap { $0 }
             .joined(separator: "\n")
+    }
+}
+
+/// Title first, icon after: "View payments ›".
+private struct TrailingIconLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 4) {
+            configuration.title
+            configuration.icon.font(.caption.weight(.semibold))
+        }
     }
 }

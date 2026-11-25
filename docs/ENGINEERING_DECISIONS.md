@@ -66,6 +66,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-50 | Firebase sign-in in the iOS app: email and password, Google; verification before invitations; config files kept out of git | Accepted | 2026-11-24 |
 | ED-51 | Properties in the iOS app: Home and Account tabs, a selected property remembered on the device, HOA name in property responses | Accepted | 2026-11-24 |
 | ED-52 | Documents in the iOS app: library tab with search, categories and paging; PDFs opened through a fresh link into a temporary file | Accepted | 2026-11-24 |
+| ED-53 | Balance and history in the iOS app: Payments tab with the balance card and paged history; balance summary on Home | Accepted | 2026-11-24 |
 
 ## Pending decisions
 
@@ -678,6 +679,20 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Limitation (development only):** local download links point at the storage container on `localhost`, so documents open in the simulator but not on an iPhone against the Mac's server.
 - **Alternatives considered:** an in-app PDF view with PDFKit — more code for what Quick Look already does, including sharing. Keeping downloaded PDFs for offline use — would leave copies on the device after access ends (GA-10); revisit if owners ask.
 
+## ED-53 — Balance and history in the iOS app
+- **Status:** Accepted · **Date:** 2026-11-24 · **Decided by:** engineering, following the owner's Stitch "Dues & Payments" and "Home Dashboard" designs · **Related:** ED-17, ED-42, ED-46, ED-51
+- **Decision:**
+  - **Payments tab** (between Home and Documents, as in the design) for the selected property:
+    - **Balance card:** the unit, the current balance (or the credit), and one status: overdue amount, else the next due date when something is not yet due, else "Paid up" (or, with a credit, "Applied to your next charges"). When some is overdue and some not yet due, both amounts are listed. Payments still processing are shown with a note that the balance changes once they settle (ED-46), and the date the HOA last updated the figures.
+    - **History:** newest first, 25 per page loaded as the owner scrolls: description, date, due date for charges, the HOA's reference ("quote it when you ask your HOA"), the amount (payments and credits shown as negative, in green) and the balance after. The carried-forward line (ED-42) closes the list once every page is loaded.
+  - **Home:** a compact balance card under the property card; tapping it opens Payments. If the balance can't be loaded, Home leaves the card out and Payments shows why.
+  - **Server figures only (ED-17):** every amount, status input and date comes from the summary and transactions endpoints. The app chooses which message to show and formats cents and dates; it adds nothing up. Calendar dates are shown as the same day in every time zone.
+  - **Not yet:** paying (next: checkout), and the design's Charges and Statements views, autopay and reserve-fund panel, which have no backend yet.
+  - **Messages:** `finance_unavailable` (no account mapped for the unit yet) and `not_found` map to plain messages.
+  - **Shared client:** `SeebrookApi` gains `financeSummary` and `accountTransactions` (ED-17). Kotlin properties named `description` appear in Swift as `description_`, since `NSObject` already has `description`.
+- **Verification:** shared client tests cover both calls and decoding (cents, carried forward). In the simulator, with the synthetic Channel Harbor ledger imported locally, an owner sees a unit with $950.00 overdue and its history, and a unit with a $450.00 credit.
+- **Alternatives considered:** loading the whole history at once — fine for the pilot's ~10 lines a year, but the API pages and older units will grow. Showing the history on Home — the design keeps Home to a summary.
+
 ## Change log
 - 2026-11-13 — Created. Recorded ED-01–ED-12 and pending decisions.
 - 2026-11-13 — Added ED-13 (logical services in one deployable, service map, boundary rules) and ED-14 (action-style use cases). The owner's earlier service map was an illustrative example, not a decision.
@@ -710,3 +725,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-24 — M5 iOS: added ED-50 (Firebase email/password and Google sign-in, email verification screen, per-configuration Firebase files out of git, `scripts/dev.sh firebase`, Firebase 12.19.3 until Xcode 26.2); sign-in screen built from the owner's Stitch design.
 - 2026-11-24 — M5 iOS: added ED-51 (Home and Account tabs, selected property remembered on the device, `hoaName` in property responses, accent color set to the brand blue).
 - 2026-11-24 — M5 iOS: added ED-52 (Documents tab: search, category chips, paging, PDFs opened through a fresh audited link into a temporary file shown in Quick Look).
+- 2026-11-24 — M5 iOS: added ED-53 (Payments tab: balance card and paged history with references and carried forward; compact balance on Home).

@@ -216,6 +216,20 @@ final class AppModel {
         }
     }
 
+    // MARK: Balance and history (ED-42, ED-53)
+
+    func financeSummary(propertyId: String) async throws -> AccountSummaryResponse {
+        try await signedIn { try await $0.financeSummary(propertyId: propertyId) }
+    }
+
+    func transactions(propertyId: String, page: Int) async throws -> AccountTransactionsPageResponse {
+        try await signedIn {
+            try await $0.accountTransactions(propertyId: propertyId, page: Int32(page), pageSize: Int32(Self.transactionPageSize))
+        }
+    }
+
+    static let transactionPageSize = 25
+
     // MARK: Documents (ED-39, ED-52)
 
     func documentCategories(hoaId: String) async throws -> [DocumentCategoryResponse] {
@@ -355,6 +369,8 @@ final class AppModel {
             return "This invitation was sent to a different email address. Sign in with the address the invitation was sent to."
         case (_, "email_not_verified"):
             return "Please verify your email address first, then try again."
+        case (_, "finance_unavailable"):
+            return "Your HOA hasn't set up the balance for this property yet."
         case (.notFound, _):
             return "This is no longer available. Pull down to refresh."
         case (_, "documents_unavailable"):

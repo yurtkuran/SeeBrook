@@ -2,6 +2,8 @@ package cc.seebrook.shared.client
 
 import cc.seebrook.shared.api.AcceptInvitationRequest
 import cc.seebrook.shared.api.AcceptInvitationResponse
+import cc.seebrook.shared.api.AccountSummaryResponse
+import cc.seebrook.shared.api.AccountTransactionsPageResponse
 import cc.seebrook.shared.api.DocumentCategoriesResponse
 import cc.seebrook.shared.api.DocumentsPageResponse
 import cc.seebrook.shared.api.DownloadLinkResponse
@@ -77,6 +79,27 @@ class SeebrookApi internal constructor(baseUrl: String, engine: HttpClientEngine
     /** The properties the user currently owns. */
     @Throws(ApiException::class, CancellationException::class)
     suspend fun myProperties(): PropertiesResponse = call { http.get("$base/v1/me/properties", it) }
+
+    /**
+     * The property's balance, as computed by the server (ED-42). Fails with `not_found`, or
+     * `finance_unavailable` when the HOA has not set up the unit's account yet.
+     */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun financeSummary(propertyId: String): AccountSummaryResponse = call {
+        http.get("${property(propertyId)}/finance/summary", it)
+    }
+
+    /** One page (from 1) of the property's transactions, newest first, with the carried-forward amount (ED-42). */
+    @Throws(ApiException::class, CancellationException::class)
+    suspend fun accountTransactions(propertyId: String, page: Int, pageSize: Int): AccountTransactionsPageResponse = call {
+        http.get("${property(propertyId)}/finance/transactions") {
+            it()
+            url.parameters.append("page", page.toString())
+            url.parameters.append("pageSize", pageSize.toString())
+        }
+    }
+
+    private fun property(propertyId: String) = "$base/v1/properties/${propertyId.encodeURLPathPart()}"
 
     /** Categories holding at least one document the owner can see in the HOA, with counts (ED-39). */
     @Throws(ApiException::class, CancellationException::class)

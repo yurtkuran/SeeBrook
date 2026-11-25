@@ -56,13 +56,7 @@ struct DocumentsView: View {
             .refreshable { await reload() }
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    VStack(spacing: 0) {
-                        Text((property?.hoaName ?? "Seebrook").uppercased())
-                            .font(.caption.weight(.semibold))
-                            .tracking(1.2)
-                            .foregroundStyle(.tint)
-                        Text("Documents").font(.headline)
-                    }
+                    ScreenTitle(hoa: property?.hoaName, title: "Documents")
                 }
             }
             .navigationBarTitleDisplayMode(.inline)

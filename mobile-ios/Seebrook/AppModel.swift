@@ -230,6 +230,24 @@ final class AppModel {
 
     static let transactionPageSize = 25
 
+    // MARK: Paying (ED-43, ED-54)
+
+    func paymentQuote(propertyId: String, amountCents: Int64) async throws -> PaymentQuoteResponse {
+        try await signedIn { try await $0.paymentQuote(propertyId: propertyId, amountCents: amountCents) }
+    }
+
+    /// Starts a payment for exactly the approved option. The caller keeps [idempotencyKey] for that
+    /// approval and sends it again on a retry, so a repeated tap never pays twice.
+    func startPayment(propertyId: String, option: PaymentOptionResponse, amountCents: Int64, idempotencyKey: String) async throws -> PaymentResponse {
+        let request = StartPaymentRequest(method: option.method, amountCents: amountCents, feeCents: option.feeCents,
+                                          totalCents: option.totalCents, idempotencyKey: idempotencyKey)
+        return try await signedIn { try await $0.startPayment(propertyId: propertyId, request: request) }
+    }
+
+    func payments(propertyId: String) async throws -> [PaymentResponse] {
+        try await signedIn { try await $0.payments(propertyId: propertyId).payments }
+    }
+
     // MARK: Documents (ED-39, ED-52)
 
     func documentCategories(hoaId: String) async throws -> [DocumentCategoryResponse] {
@@ -340,6 +358,9 @@ final class AppModel {
         return Account(me: me, properties: properties.properties)
     }
 
+    /// The API's error code (`quote_changed`, …), for screens that handle one specially.
+    static func apiCode(_ error: Error) -> String? { apiError(error)?.code }
+
     private static func apiError(_ error: Error) -> ApiException? {
         (error as NSError).kotlinException as? ApiException
     }
@@ -369,6 +390,18 @@ final class AppModel {
             return "This invitation was sent to a different email address. Sign in with the address the invitation was sent to."
         case (_, "email_not_verified"):
             return "Please verify your email address first, then try again."
+        case (_, "invalid_amount"):
+            return "That amount can't be paid online. Check the amount and try again."
+        case (_, "payments_unavailable"):
+            return "Online payments are paused right now. Nothing was charged."
+        case (_, "provider_unavailable"):
+            return "The payment service isn't answering. Nothing was charged. Please try again in a few minutes."
+        case (_, "provider_rejected"):
+            return "The payment service couldn't start this payment. Nothing was charged."
+        case (_, "method_not_accepted"):
+            return "Your HOA doesn't accept that payment method any more. Choose another."
+        case (_, "idempotency_conflict"):
+            return "This payment was already started with different details. Please start again."
         case (_, "finance_unavailable"):
             return "Your HOA hasn't set up the balance for this property yet."
         case (.notFound, _):

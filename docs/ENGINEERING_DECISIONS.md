@@ -67,6 +67,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-51 | Properties in the iOS app: Home and Account tabs, a selected property remembered on the device, HOA name in property responses | Accepted | 2026-11-24 |
 | ED-52 | Documents in the iOS app: library tab with search, categories and paging; PDFs opened through a fresh link into a temporary file | Accepted | 2026-11-24 |
 | ED-53 | Balance and history in the iOS app: Payments tab with the balance card and paged history; balance summary on Home | Accepted | 2026-11-24 |
+| ED-54 | Checkout in the iOS app, part 1: amount, server quote, approved option, idempotent start, payment status; Stripe's payment sheet follows with the Stripe test account | Accepted | 2026-11-24 |
 
 ## Pending decisions
 
@@ -680,7 +681,7 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Alternatives considered:** an in-app PDF view with PDFKit — more code for what Quick Look already does, including sharing. Keeping downloaded PDFs for offline use — would leave copies on the device after access ends (GA-10); revisit if owners ask.
 
 ## ED-53 — Balance and history in the iOS app
-- **Status:** Accepted · **Date:** 2026-11-24 · **Decided by:** engineering, following the owner's Stitch "Dues & Payments" and "Home Dashboard" designs · **Related:** ED-17, ED-42, ED-46, ED-51
+- **Status:** Accepted, amended by ED-54 (screen design) · **Date:** 2026-11-24 · **Decided by:** engineering, following the owner's Stitch "Dues & Payments" and "Home Dashboard" designs · **Related:** ED-17, ED-42, ED-46, ED-51
 - **Decision:**
   - **Payments tab** (between Home and Documents, as in the design) for the selected property:
     - **Balance card:** the unit, the current balance (or the credit), and one status: overdue amount, else the next due date when something is not yet due, else "Paid up" (or, with a credit, "Applied to your next charges"). When some is overdue and some not yet due, both amounts are listed. Payments still processing are shown with a note that the balance changes once they settle (ED-46), and the date the HOA last updated the figures.
@@ -692,6 +693,23 @@ Each exception must state what it is, why it cannot live solely in the backend, 
   - **Shared client:** `SeebrookApi` gains `financeSummary` and `accountTransactions` (ED-17). Kotlin properties named `description` appear in Swift as `description_`, since `NSObject` already has `description`.
 - **Verification:** shared client tests cover both calls and decoding (cents, carried forward). In the simulator, with the synthetic Channel Harbor ledger imported locally, an owner sees a unit with $950.00 overdue and its history, and a unit with a $450.00 credit.
 - **Alternatives considered:** loading the whole history at once — fine for the pilot's ~10 lines a year, but the API pages and older units will grow. Showing the history on Home — the design keeps Home to a summary.
+
+## ED-54 — Checkout in the iOS app (part 1)
+- **Status:** Accepted · **Date:** 2026-11-24 · **Decided by:** engineering, following the owner's Stitch "Review & Pay Dues" design · **Related:** ED-17 (X-02), ED-43, ED-46, ED-53, GA-17, GA-22, GA-24
+- **Decision:**
+  - **Where:** **Make a Payment** on the Payments balance card when the summary says online payments are `available`. When they are `unavailable` (paused by the HOA or during an outage, ED-46) the card says so; `not_offered` shows nothing.
+  - **Flow:** a sheet with the unit, an amount (prefilled with what is owed; any amount may be entered, and the server decides what it accepts), the server's quote for each method the HOA accepts (fee and total), a breakdown (dues, fee, total) and one **Pay** button for the selected total. Every figure is the server's; the app only turns the typed amount into cents (digits, at most two decimals).
+  - **Never paying twice:** the app creates an idempotency key when the owner taps Pay and keeps it for that approval (method, amount, fee, total). A retry of the same approval, for example after a dropped connection, sends the same key, so the server returns the same payment. Any new quote or a different choice ends the approval and the next Pay gets a new key.
+  - **Changed quote:** `quote_changed` means nothing was charged; the app fetches the new quote and asks the owner to confirm the new total.
+  - **After starting:** the Payments tab reloads. A new **Online payments** section lists the five most recent online payments with status (Started, Processing, Paid, Failed with the reason, Canceled), because a payment joins the ledger history only once it settles (GA-17). The balance card's "processing" note comes from the server's pending amount.
+  - **Card and bank details (part 2):** they are collected only by the provider's SDK (X-02, GA-24). Stripe's iOS payment sheet is added with the owner's Stripe test-mode account, since it can't be tried without one. Until then the app completes only `simulated` payments (development); for any other provider it says card or bank entry isn't available yet and that nothing was charged. A Stripe payment started that way stays unconfirmed and is never charged.
+  - **No authorization wording yet:** the design's bank-debit authorization text is legal wording and is not added by engineering; Stripe's payment sheet shows the bank-debit mandate itself. Revisit with the privacy policy and terms.
+  - **Shared client:** `SeebrookApi` gains `paymentQuote`, `startPayment` and `payments`, which only send and decode (ED-17).
+  - **Payments screen design (owner, 2026-11-25; amends ED-53):** the Payments tab follows the owner's Stitch "Payments - Mobile" design. There is no title bar. The balance card shows the HOA logo with the unit and HOA name, then the caption, amount and status centered, the processing note, a 48-point **Make a Payment** button and "Updated <date>". Section headers are small uppercase. Transaction rows keep the description to one line; the date and reference line may wrap to two, so the reference owners are asked to quote is never cut off. The carried-forward row gets an icon like the other rows. Until the server serves each HOA's logo (ED-19: branding comes from HOA configuration, not bundled), the logo spot shows a neutral building tile. The compact balance on Home is unchanged.
+  - **Debug builds:** `SEEBROOK_CHECKOUT=1` opens checkout once the balance loads, for scripted simulator runs (with `SEEBROOK_TAB=payments`).
+- **Verification:** shared client tests cover the quote, the start request body with its key, and `quote_changed`. Locally with the simulated provider: the sheet shows the quote ($950.00 dues: card $977.85 with a $27.85 fee, bank $950.00), the same key twice returns the same payment, a wrong fee is answered `quote_changed`, a processing payment shows on the Payments tab, and a succeeded one brings the balance to $0. Not checked here: tapping Pay in the app (no UI automation).
+- **Alternatives considered:** sending the quote's figures without the owner choosing a method — the fee differs by method and the owner must approve the total (GA-22). A key per tap — a retry after a lost response could start a second payment.
+
 
 ## Change log
 - 2026-11-13 — Created. Recorded ED-01–ED-12 and pending decisions.
@@ -726,3 +744,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-24 — M5 iOS: added ED-51 (Home and Account tabs, selected property remembered on the device, `hoaName` in property responses, accent color set to the brand blue).
 - 2026-11-24 — M5 iOS: added ED-52 (Documents tab: search, category chips, paging, PDFs opened through a fresh audited link into a temporary file shown in Quick Look).
 - 2026-11-24 — M5 iOS: added ED-53 (Payments tab: balance card and paged history with references and carried forward; compact balance on Home).
+- 2026-11-24 — M5 iOS: added ED-54 (checkout part 1: quote, approval, idempotent start, online payment status; Stripe payment sheet deferred to the Stripe test account). Payments screen restyled to the owner's "Payments - Mobile" design; ED-53 marked amended.

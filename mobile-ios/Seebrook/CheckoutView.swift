@@ -296,7 +296,7 @@ struct CheckoutView: View {
     }
 
     /// "950.00" for 95000 cents, for the amount field.
-    private static func editable(_ cents: Int64) -> String {
+    static func editable(_ cents: Int64) -> String {
         (Decimal(cents) / 100).formatted(.number.precision(.fractionLength(2)).grouping(.never))
     }
 

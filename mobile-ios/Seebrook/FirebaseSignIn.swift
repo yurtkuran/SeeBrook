@@ -43,6 +43,31 @@ enum FirebaseSignIn {
         return try await Auth.auth().signIn(with: credential).user
     }
 
+    /// How the current user signs in, for asking them to sign in again: password, Google, or both.
+    static var signInMethods: (password: Bool, google: Bool) {
+        let providers = Set(currentUser?.providerData.map(\.providerID) ?? [])
+        return (providers.contains(EmailAuthProviderID), providers.contains(GoogleAuthProviderID))
+    }
+
+    /// Confirms the signed-in owner again before a change that can lead to charges (ED-59): a fresh
+    /// sign-in renews the token's `auth_time`, which the server checks.
+    static func reauthenticate(password: String) async throws {
+        guard let user = currentUser, let email = user.email else { throw NotAvailable() }
+        try await user.reauthenticate(with: EmailAuthProvider.credential(withEmail: email, password: password))
+        _ = try await user.getIDToken(forcingRefresh: true)
+    }
+
+    static func reauthenticateWithGoogle() async throws {
+        guard let user = currentUser, let clientID = FirebaseApp.app()?.options.clientID,
+              let presenter = topViewController() else { throw NotAvailable() }
+        GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
+        let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presenter, hint: user.email)
+        guard let idToken = result.user.idToken?.tokenString else { throw NotAvailable() }
+        let credential = GoogleAuthProvider.credential(withIDToken: idToken, accessToken: result.user.accessToken.tokenString)
+        try await user.reauthenticate(with: credential)
+        _ = try await user.getIDToken(forcingRefresh: true)
+    }
+
     static func sendPasswordReset(email: String) async throws {
         try await Auth.auth().sendPasswordReset(withEmail: email)
     }
@@ -93,6 +118,8 @@ enum FirebaseSignIn {
             return "Too many attempts. Please wait a few minutes and try again."
         case .userDisabled:
             return "This sign-in has been disabled. Please contact your HOA."
+        case .userMismatch:
+            return "That's a different account. Sign in with the account you use for Seebrook."
         case .accountExistsWithDifferentCredential:
             return "This email already signs in another way. Use the method you used before."
         default:

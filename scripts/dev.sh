@@ -88,8 +88,10 @@ fi
 
 # --- Stripe test mode -----------------------------------------------------------------------------
 # Payments are direct charges on the HOA's connected account (ED-43), so their events arrive as
-# Connect events; the CLI forwards exactly the events the server handles. It uses the account
-# `stripe login` connected, which must be the platform account the secret key belongs to.
+# Connect events; the CLI forwards exactly the events the server handles. The CLI runs with the
+# same test secret key as the server (through its environment, never on the command line), so it
+# always listens to the right platform account and doesn't depend on `stripe login`, which expires.
+export STRIPE_API_KEY="$SEEBROOK_STRIPE_SECRET_KEY"
 EVENTS="payment_intent.processing,payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,refund.created,refund.failed,charge.dispute.funds_withdrawn,charge.dispute.funds_reinstated"
 WEBHOOK="http://localhost:${SEEBROOK_HTTP_PORT}/v1/webhooks/payments/stripe"
 export SEEBROOK_PAYMENTS_MODE=stripe

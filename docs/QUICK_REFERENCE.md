@@ -78,7 +78,7 @@ $APP check-alerts                                # stuck payments and jobs now (
 ```bash
 # .env.brevo (repository root, never committed):
 #   SEEBROOK_BREVO_API_KEY=xkeysib-…
-#   SEEBROOK_EMAIL_FROM=Seebrook <no-reply@email.seebrook.cc>
+#   SEEBROOK_EMAIL_FROM="Seebrook <no-reply@email.seebrook.cc>"   (quoted: the shell reads this file)
 (set -a; . ./.env.brevo; set +a; SEEBROOK_EMAIL_MODE=brevo $APP send-test-email --operator <email> --to <your address>)
 ```
 

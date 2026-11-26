@@ -76,6 +76,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-60 | Autopay in the iOS app: Payments row, Autopay screen, Stripe setup sheet, signing in again | Accepted | 2026-11-25 |
 | ED-61 | Operator alerts: recorded once per problem, emailed to Root operators, CLI to list and resolve | Accepted | 2026-11-26 |
 | ED-62 | `send-test-email`: Root sends one email at once through the configured provider to check it and the sending domain | Accepted | 2026-11-26 |
+| ED-63 | Owner emails are no-reply: no reply-to address for now; revisit if owners push back | Accepted | 2026-11-26 |
 
 ## Pending decisions
 
@@ -83,7 +84,7 @@ This complements — and never overrides — the approved product constraints in
 |---|---|---|
 | Hosting provider | M1 (before first deploy) | Low-cost managed PostgreSQL + single service; escalate only material cost/security differences |
 | Root MFA (Identity Platform upgrade) | Before a second HOA joins the beta | Deferred by owner (GA-04 amendment, ED-28). Upgrade the Firebase project to Identity Platform and enforce TOTP for Root |
-| Brevo account and sending domain | Before the first real invitation is sent | Provider chosen by owner (ED-36); account created by the owner 2026-11-26; the owner authenticated the subdomain `email.seebrook.cc` (Brevo code, DKIM CNAMEs, DMARC `p=none`), so Brevo's sending reputation stays separate from the MXroute mailboxes on `seebrook.cc`; sender `Seebrook <no-reply@email.seebrook.cc>`; open/click tracking off; API key created. Next: `send-test-email` (ED-62). In production set `SEEBROOK_EMAIL_MODE=brevo`, `SEEBROOK_BREVO_API_KEY` and `SEEBROOK_EMAIL_FROM`; until then production keeps emails queued |
+| Brevo account and sending domain | With production setup (M7) | Done for the account and domain: the owner created the Brevo account and authenticated `email.seebrook.cc` (Brevo code, DKIM, DMARC `p=none`), tracking is off, and a test email through Brevo reached the inbox on 2026-11-26 (ED-62). Left for production: a separate production API key and `SEEBROOK_EMAIL_MODE=brevo`, `SEEBROOK_BREVO_API_KEY`, `SEEBROOK_EMAIL_FROM` in the hosting secrets; later, tighten DMARC from `p=none` once Brevo's reports show everything passes |
 | Account deletion vs financial record retention | Before App Store submission | App Store requires in-app account deletion; financial history must be retained. Proposed: delete/anonymize identity and contact data, retain ledger and audit records. Owner approval + legal check — user-facing/legal |
 | Privacy policy and terms of service | Before App Store submission | Required by the App Store; decide author and publisher (Seebrook vs HOA) — legal |
 | Legal entity / account ownership | Before developer accounts, the production Firebase project and processor setup | Who owns developer accounts, domain, Firebase/Google Cloud project, platform and processor relationship (individual, company or HOA) — owner to decide |
@@ -815,6 +816,12 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Verification:** tests: a Root operator's test email is sent once and audited with the domain only; non-Root operators, disabled email, an invalid address and a provider rejection are refused and leave no audit entry.
 - **Alternatives considered:** queuing it like other emails — the point is to see the provider's answer right away. Running the local backend on Brevo — fake addresses would bounce.
 
+## ED-63 — Owner emails are no-reply
+- **Status:** Accepted · **Date:** 2026-11-26 · **Decided by:** owner · **Related:** ED-36, ED-62
+- **Decision:** Seebrook's emails come from `Seebrook <no-reply@email.seebrook.cc>` with no reply-to address (`SEEBROOK_EMAIL_REPLY_TO` stays unset). Replies are not read; each email already tells owners to contact their HOA board with questions. If owners push back, a reply-to mailbox (for example on the MXroute-hosted `seebrook.cc`) can be set without code changes.
+- **Verification:** a test email sent with `send-test-email` through Brevo from `no-reply@email.seebrook.cc` arrived in the owner's `seebrook.cc` mailbox (inbox, not spam).
+- **Alternatives considered:** a `support@seebrook.cc` reply-to — someone would have to answer it; owners' questions belong with their board.
+
 ## Change log
 - 2026-11-13 — Created. Recorded ED-01–ED-12 and pending decisions.
 - 2026-11-13 — Added ED-13 (logical services in one deployable, service map, boundary rules) and ED-14 (action-style use cases). The owner's earlier service map was an illustrative example, not a decision.
@@ -857,3 +864,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-25 — M6 part 2: added ED-60 (autopay in the iOS app: Payments row, Autopay screen, Stripe setup sheet, approval from the payment quote, signing in again when the server asks). Amends ED-58: the local Stripe forwarder uses the test secret key, not `stripe login`.
 - 2026-11-26 — M6 part 3: added ED-61 (operator alerts: recorded once per problem, emailed to Root operators, raised for outages, mismatches, refused lookups, stuck payments, failed and overdue jobs; `list-alerts`, `resolve-alert`, `check-alerts`). Updated the "Alert delivery" pending item; completes M6.
 - 2026-11-26 — Added ED-62 (`send-test-email`). Updated the Brevo pending item (account created and `email.seebrook.cc` authenticated by the owner).
+- 2026-11-26 — Added ED-63 (owner emails are no-reply, owner decision). Brevo pending item: account and `email.seebrook.cc` verified with a test email; production keys left for M7.

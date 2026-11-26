@@ -140,6 +140,7 @@ private fun Payment.toResponse(provider: String?, clientParams: Map<String, Stri
     createdAt = DateTimeFormatter.ISO_INSTANT.format(createdAt),
     succeededAt = succeededAt?.let(DateTimeFormatter.ISO_INSTANT::format),
     failureReason = failureReason,
+    failureMessage = failureMessage,
     provider = provider,
     clientParams = clientParams,
 )

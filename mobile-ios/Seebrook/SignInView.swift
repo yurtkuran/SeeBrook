@@ -111,7 +111,7 @@ struct SignInView: View {
         Button("Sign In") {
             run { await model.signIn(email: email, password: password) }
         }
-        .buttonStyle(PrimaryButtonStyle())
+        .buttonStyle(SignInPrimaryButtonStyle())
         .disabled(email.isEmpty || password.isEmpty)
         .padding(.top, 8)
         if FirebaseSignIn.googleAvailable {
@@ -120,7 +120,7 @@ struct SignInView: View {
             } label: {
                 Label("Sign in with Google", systemImage: "g.circle.fill")
             }
-            .buttonStyle(SecondaryButtonStyle())
+            .buttonStyle(SignInSecondaryButtonStyle())
         }
     }
 
@@ -145,7 +145,7 @@ struct SignInView: View {
         Button("Set Up Account") {
             run { await model.setUpAccount(invitation: invitation, email: email, password: password) }
         }
-        .buttonStyle(PrimaryButtonStyle())
+        .buttonStyle(SignInPrimaryButtonStyle())
         .disabled(invitation.isEmpty || email.isEmpty || password.isEmpty)
         .padding(.top, 8)
         if FirebaseSignIn.googleAvailable {
@@ -154,7 +154,7 @@ struct SignInView: View {
             } label: {
                 Label("Use Google instead", systemImage: "g.circle.fill")
             }
-            .buttonStyle(SecondaryButtonStyle())
+            .buttonStyle(SignInSecondaryButtonStyle())
             .disabled(invitation.isEmpty)
         }
     }
@@ -266,8 +266,8 @@ private enum Style {
     static let secondaryText = Color(red: 0.39, green: 0.45, blue: 0.55)  // slate-500
     static let labelText = Color(red: 0.20, green: 0.25, blue: 0.33)      // slate-700
     static let border = Color(red: 0.89, green: 0.91, blue: 0.94)         // slate-200
-    static let cardRadius: CGFloat = 16
-    static let controlRadius: CGFloat = 12
+    static let cardRadius = Theme.radius
+    static let controlRadius = Theme.radius
 }
 
 /// The faded harbor photo, with a light wash so the form stays readable.
@@ -282,7 +282,7 @@ private struct Background: View {
     }
 }
 
-private struct PrimaryButtonStyle: ButtonStyle {
+private struct SignInPrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
@@ -296,7 +296,7 @@ private struct PrimaryButtonStyle: ButtonStyle {
     }
 }
 
-private struct SecondaryButtonStyle: ButtonStyle {
+private struct SignInSecondaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
@@ -321,42 +321,48 @@ private struct DeveloperSignInView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    TextField("http://your-mac.local:8088", text: $server)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .onSubmit { model.useServer(server) }
-                    Button("Check server") {
+            CardScreen {
+                CardSection(header: "Server") {
+                    CardRow {
+                        TextField("http://your-mac.local:8088", text: $server)
+                            .keyboardType(.URL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .onSubmit { model.useServer(server) }
+                    }
+                    CardDivider()
+                    Button {
                         model.useServer(server)
                         Task { await model.checkServer() }
+                    } label: {
+                        CardRow { Text("Check server").foregroundStyle(.tint) }
                     }
+                    .buttonStyle(.plain)
                     if let status = model.serverStatus {
-                        Text(status).font(.footnote).foregroundStyle(.secondary)
+                        CardDivider()
+                        CardRow { Text(status).font(.footnote).foregroundStyle(.secondary) }
                     }
-                } header: {
-                    Text("Server")
                 } footer: {
                     Text(verbatim: "On your iPhone, use your Mac's address on the same Wi-Fi, for example http://your-mac.local:8088. The simulator can use http://localhost:8088.")
                 }
-                Section {
-                    TextField("Paste the token", text: $token, axis: .vertical)
-                        .lineLimit(3...6)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.footnote.monospaced())
-                    Button("Sign in with token") {
-                        model.useServer(server)
-                        dismiss()
-                        Task { await model.signIn(token: token) }
+                CardSection(header: "Development token") {
+                    CardRow {
+                        TextField("Paste the token", text: $token, axis: .vertical)
+                            .lineLimit(3...6)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.footnote.monospaced())
                     }
-                    .disabled(token.isEmpty)
-                } header: {
-                    Text("Development token")
                 } footer: {
                     Text(verbatim: "Only when the server runs in development auth mode. On your Mac: seebrook dev-token <email> --days 7")
                 }
+                Button("Sign in with token") {
+                    model.useServer(server)
+                    dismiss()
+                    Task { await model.signIn(token: token) }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(token.isEmpty)
             }
             .navigationTitle("Developer")
             .toolbar {

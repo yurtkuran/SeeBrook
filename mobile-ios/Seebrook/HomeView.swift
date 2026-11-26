@@ -23,12 +23,25 @@ struct MainView: View {
         }
     }
 
-    /// Debug builds: scripted runs can open a tab with SIMCTL_CHILD_SEEBROOK_TAB (ED-48).
-    private static var startTab: String {
+    /// Home, unless a scripted run asked for another tab (debug builds, SIMCTL_CHILD_SEEBROOK_TAB).
+    private static var startTab: String { ScriptedLaunch.take("SEEBROOK_TAB") ?? "home" }
+}
+
+/// Debug builds: scripted simulator runs (`SIMCTL_CHILD_SEEBROOK_*`, ED-48) can pick the first
+/// tab or open a sheet. Each setting is used once, for the first session after launch, so signing
+/// out and in again starts on Home like a normal launch. Release builds ignore them.
+@MainActor
+enum ScriptedLaunch {
+    #if DEBUG
+    private static var used: Set<String> = []
+    #endif
+
+    static func take(_ name: String) -> String? {
         #if DEBUG
-        ProcessInfo.processInfo.environment["SEEBROOK_TAB"] ?? "home"
+        guard used.insert(name).inserted else { return nil }
+        return ProcessInfo.processInfo.environment[name]
         #else
-        "home"
+        return nil
         #endif
     }
 }
@@ -52,7 +65,7 @@ struct HomeView: View {
                         if let summary {
                             Button(action: showPayments) {
                                 BalanceCard(property: property, summary: summary, compact: true)
-                                    .contentShape(.rect(cornerRadius: 14))
+                                    .contentShape(.rect(cornerRadius: Theme.radius))
                             }
                             .buttonStyle(.plain)
                             .accessibilityHint("Opens Payments")
@@ -62,11 +75,11 @@ struct HomeView: View {
                         noProperties
                     }
                 }
-                .padding(20)
-                // Same distance from the top as the Payments card, which sits in a List section.
+                .padding(Theme.padding)
+                // Same distance from the top as the Payments card.
                 .padding(.top, 15)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.screen)
             .refreshable {
                 await model.refresh()
                 await loadSummary()
@@ -101,7 +114,7 @@ struct HomeView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: .rect(cornerRadius: 14))
+        .card()
     }
 
     @ViewBuilder private var propertyMenu: some View {
@@ -140,7 +153,7 @@ private struct HoaPhoto: View {
                         Image(uiImage: image).resizable().scaledToFill()
                     }
                 }
-                .clipShape(.rect(cornerRadius: 14))
+                .clipShape(.rect(cornerRadius: Theme.radius))
                 .accessibilityElement()
                 .accessibilityLabel("\(property.hoaName) community photo")
                 .accessibilityAddTraits(.isImage)
@@ -182,7 +195,7 @@ private struct PropertyCard<MenuItems: View>: View {
             }
         }
         .padding(20)
-        .background(.background, in: .rect(cornerRadius: 14))
+        .card()
     }
 }
 

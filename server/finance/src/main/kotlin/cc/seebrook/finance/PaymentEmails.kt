@@ -156,7 +156,7 @@ internal object PaymentEmail {
                 text = """
                     |$hello
                     |
-                    |Your ${if (v.recurring) "recurring " else ""}payment of ${Money.format(v.totalCents)} for ${v.unit} to ${v.hoaName} did not go through${v.failureReason?.let { " (${it.replace('_', ' ')})" }.orEmpty()}.
+                    |Your ${if (v.recurring) "recurring " else ""}payment of ${Money.format(v.totalCents)} for ${v.unit} to ${v.hoaName} did not go through. ${PaymentFailures.describe(v.failureReason, v.method)}
                     |${
                     if (v.recurring) {
                         "Nothing was credited to your account. This charge will not be tried again; your recurring payment continues on its next date. You can pay this amount in the Seebrook app, and check or change your saved payment method there."

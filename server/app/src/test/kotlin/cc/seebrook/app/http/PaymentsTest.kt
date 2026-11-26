@@ -264,6 +264,10 @@ class PaymentsTest {
 
         http.providerEvent(payment.id, ProviderPaymentStatus.FAILED).status shouldBe HttpStatusCode.OK
         status(payment.id) shouldBe "failed"
+        // The owner sees why in words, not the provider's code (ED-64).
+        http.get("/v1/properties/${unit1.propertyId}/payments") { bearerAuth(owner) }.body<PaymentsResponse>().payments.single().let {
+            it.failureMessage shouldBe "Your card was declined. Try another card or contact your card's bank."
+        }
         http.summary(owner, unit1).balanceCents shouldBe 35_000
         // The owner retried with another card at the provider, and it went through.
         http.providerEvent(payment.id, ProviderPaymentStatus.SUCCEEDED).status shouldBe HttpStatusCode.OK

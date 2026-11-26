@@ -77,6 +77,9 @@ This complements — and never overrides — the approved product constraints in
 | ED-61 | Operator alerts: recorded once per problem, emailed to Root operators, CLI to list and resolve | Accepted | 2026-11-26 |
 | ED-62 | `send-test-email`: Root sends one email at once through the configured provider to check it and the sending domain | Accepted | 2026-11-26 |
 | ED-63 | Owner emails are no-reply: no reply-to address for now; revisit if owners push back | Accepted | 2026-11-26 |
+| ED-64 | Payment failures in words: the server turns the provider's code into a sentence for the app and the failure email | Accepted | 2026-11-26 |
+| ED-65 | One app-wide corner radius (`Theme.radius`); screens draw their own card sections instead of system forms and lists | Accepted | 2026-11-26 |
+| ED-66 | Autopay also from Account; signing in always lands on Home; scripted launch settings apply once | Accepted | 2026-11-26 |
 
 ## Pending decisions
 
@@ -822,6 +825,30 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Verification:** a test email sent with `send-test-email` through Brevo from `no-reply@email.seebrook.cc` arrived in the owner's `seebrook.cc` mailbox (inbox, not spam).
 - **Alternatives considered:** a `support@seebrook.cc` reply-to — someone would have to answer it; owners' questions belong with their board.
 
+## ED-64 — Payment failures in words for owners
+- **Status:** Accepted · **Date:** 2026-11-26 · **Decided by:** engineering · **Related:** ED-17, ED-45, ED-54, ED-59
+- **Context:** a declined payment showed Stripe's code ("generic_decline") in the app, and the failure email showed it with spaces ("generic decline").
+- **Decision:** the server turns the provider's failure code and the payment method into one sentence for the owner (`PaymentFailures`), sent as the new `failureMessage` on payment responses and used in the failure email. `failureReason` keeps the provider's code for operators and support. The app shows only the message (ED-17: wording is the backend's). Common card codes (insufficient funds, expired card, wrong security code or number, authentication needed, processing error) and bank return codes (insufficient funds, account closed or not found, not authorized, restricted) get their own sentence; anything else, including codes that hint at fraud or a lost or stolen card, reads as a plain decline, as card issuers ask.
+- **Verification:** tests for the wording (including fraud-related and unknown codes), the payment list over HTTP, and the failure email. Locally, the sandbox decline from ED-59 now reads "Your card was declined. Try another card or contact your card's bank." on the Payments tab.
+- **Alternatives considered:** mapping codes in the app — wording would differ between the app and email, and between iOS and Android later.
+
+## ED-65 — One corner radius across the iOS app
+- **Status:** Accepted · **Date:** 2026-11-26 · **Decided by:** owner (one radius for every card and button, smaller than before; checkout titled "Payment" without the "Dues" header), engineering (how) · **Related:** ED-53, ED-54, ED-56, ED-60
+- **Decision:**
+  - **One setting:** `Theme.radius` (10 points) in `mobile-ios/Seebrook/Theme.swift` rounds every card, section, field, icon tile and button. Changing it there changes every screen. Bordered system buttons get it app-wide through `buttonBorderShape`; full-width buttons use `PrimaryButtonStyle`; the sign-in screen's own styles use it too.
+  - **Own sections:** SwiftUI can't change the rounding of system `Form` and `List` sections, so screens are built from `CardScreen`, `CardSection` (header, rows on one card, footer), `CardRow` and `CardDivider` on the grouped background. Payments, Documents, Home, Account, checkout, Autopay, the sign-in-again sheet, invitation, email verification and the developer sheet use them. Long lists stay lazy, so history and documents still load page by page.
+  - **What stays as it is:** status and category pills stay capsules; the toolbar buttons (Cancel, Done) and the search field are drawn by iOS 26 and can't be restyled.
+  - **Autopay:** removing a saved method is a trash button on its row (swipe actions exist only in system lists).
+- **Verification:** the app builds; screenshots in the simulator of Home, Payments, Documents, Account, Autopay and checkout show the same radius on every card and button, and Home and Payments keep the same top spacing.
+- **Alternatives considered:** keeping system forms and only changing our own cards — sections would keep iOS's larger rounding, so the screens wouldn't match.
+
+## ED-66 — Autopay on Account; signing in lands on Home
+- **Status:** Accepted · **Date:** 2026-11-26 · **Decided by:** owner · **Related:** ED-48, ED-60
+- **Decision:**
+  - **Autopay on Account:** the Account tab has a Payments section with the same Autopay row as Payments, for the selected property, opening the Autopay screen. It shows only when the HOA offers autopay or the owner has a plan.
+  - **Home after sign-in:** the app always starts on Home after signing in. Debug-only scripted launch settings (`SIMCTL_CHILD_SEEBROOK_TAB`, `_CHECKOUT`, `_AUTOPAY`) now apply once, to the first session after launch; before, signing out and in again in the same run reopened the scripted tab and sheet, which is how the owner saw Autopay after signing in.
+- **Verification:** the app builds; a screenshot of Account signed in with real Firebase sign-in shows the Autopay row ("Set up") for Unit 01.
+
 ## Change log
 - 2026-11-13 — Created. Recorded ED-01–ED-12 and pending decisions.
 - 2026-11-13 — Added ED-13 (logical services in one deployable, service map, boundary rules) and ED-14 (action-style use cases). The owner's earlier service map was an illustrative example, not a decision.
@@ -865,3 +892,6 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-26 — M6 part 3: added ED-61 (operator alerts: recorded once per problem, emailed to Root operators, raised for outages, mismatches, refused lookups, stuck payments, failed and overdue jobs; `list-alerts`, `resolve-alert`, `check-alerts`). Updated the "Alert delivery" pending item; completes M6.
 - 2026-11-26 — Added ED-62 (`send-test-email`). Updated the Brevo pending item (account created and `email.seebrook.cc` authenticated by the owner).
 - 2026-11-26 — Added ED-63 (owner emails are no-reply, owner decision). Brevo pending item: account and `email.seebrook.cc` verified with a test email; production keys left for M7.
+- 2026-11-26 — Added ED-64 (payment failures in words for owners: `failureMessage` in the API and the failure email).
+- 2026-11-26 — Added ED-65 (one app-wide corner radius, own card sections; checkout titled "Payment"). Owner request.
+- 2026-11-26 — Added ED-66 (autopay on Account; sign-in lands on Home; scripted launch settings apply once). `scripts/dev.sh` modes can be combined (`firebase stripe`).

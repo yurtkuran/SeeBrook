@@ -9,24 +9,26 @@ struct VerifyEmailView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    Text("We sent a verification link to \(email). Open it, then come back and tap Continue.")
-                    Button("Continue") {
-                        Task {
-                            working = true
-                            message = await model.checkEmailVerified()
-                            working = false
-                        }
-                    }
-                    Button("Send the email again") {
-                        Task { message = await model.resendVerification() }
-                    }
+            CardScreen {
+                CardSection {
+                    CardRow { Text("We sent a verification link to \(email). Open it, then come back and tap Continue.") }
                 } footer: {
                     Text("Can't find it? Check your spam folder.")
                 }
+                Button("Continue") {
+                    Task {
+                        working = true
+                        message = await model.checkEmailVerified()
+                        working = false
+                    }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                Button("Send the email again") {
+                    Task { message = await model.resendVerification() }
+                }
+                .frame(maxWidth: .infinity)
                 if let message {
-                    Section { Text(message).foregroundStyle(.secondary) }
+                    CardSection { CardRow { Text(message).foregroundStyle(.secondary) } }
                 }
             }
             .disabled(working)

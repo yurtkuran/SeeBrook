@@ -44,7 +44,7 @@ struct CheckoutView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            CardScreen {
                 if let started {
                     StartedView(payment: started)
                 } else {
@@ -52,7 +52,7 @@ struct CheckoutView: View {
                 }
             }
             .disabled(working)
-            .navigationTitle(started == nil ? "Pay dues" : "Payment submitted")
+            .navigationTitle(started == nil ? "Payment" : "Payment submitted")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -80,71 +80,81 @@ struct CheckoutView: View {
     // MARK: Form
 
     @ViewBuilder private var form: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(property.unitLabel).font(.headline)
-                Text(property.hoaName).font(.subheadline).foregroundStyle(.secondary)
-            }
-        }
-        Section {
-            HStack {
-                Text("Amount")
-                Spacer()
-                TextField("0.00", text: $amountText)
-                    .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.trailing)
-                    .font(.title3.monospacedDigit())
-                    .focused($amountFocused)
-                    .onSubmit { Task { await requote() } }
-            }
-            if amountFocused {
-                Button("Update total") {
-                    amountFocused = false
-                    Task { await requote() }
+        CardSection {
+            CardRow {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(property.unitLabel).font(.headline)
+                    Text(property.hoaName).font(.subheadline).foregroundStyle(.secondary)
                 }
             }
-        } header: {
-            Text("Dues")
+        }
+        CardSection {
+            CardRow {
+                HStack {
+                    Text("Amount")
+                    Spacer()
+                    TextField("0.00", text: $amountText)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .font(.title3.monospacedDigit())
+                        .focused($amountFocused)
+                        .onSubmit { Task { await requote() } }
+                }
+            }
+            if amountFocused {
+                CardDivider()
+                CardRow {
+                    Button("Update total") {
+                        amountFocused = false
+                        Task { await requote() }
+                    }
+                }
+            }
         } footer: {
             if summary.amountDueCents > 0 {
                 Text("You owe \(Money.text(summary.amountDueCents, summary.currency)). You can pay a different amount.")
             }
         }
         if let message {
-            Section { Text(message).foregroundStyle(.red) }
+            CardSection { CardRow { Text(message).foregroundStyle(.red) } }
         }
         if let quote {
-            Section("Pay by") {
-                ForEach(quote.options, id: \.method) { option in
+            CardSection(header: "Pay by") {
+                ForEach(Array(quote.options.enumerated()), id: \.element.method) { index, option in
+                    if index > 0 { CardDivider() }
                     Button { method = option.method } label: {
-                        HStack {
-                            Image(systemName: method == option.method ? "largecircle.fill.circle" : "circle")
-                                .foregroundStyle(.tint)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(Self.methodName(option.method))
-                                Text(option.feeCents == 0 ? "No fee" : "Fee \(Money.text(option.feeCents, quote.currency))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                        CardRow {
+                            HStack {
+                                Image(systemName: method == option.method ? "largecircle.fill.circle" : "circle")
+                                    .foregroundStyle(.tint)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(Self.methodName(option.method))
+                                    Text(option.feeCents == 0 ? "No fee" : "Fee \(Money.text(option.feeCents, quote.currency))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(Money.text(option.totalCents, quote.currency)).monospacedDigit()
                             }
-                            Spacer()
-                            Text(Money.text(option.totalCents, quote.currency)).monospacedDigit()
                         }
                     }
-                    .foregroundStyle(.primary)
+                    .buttonStyle(.plain)
                     .accessibilityAddTraits(method == option.method ? .isSelected : [])
                 }
             }
             if let option = selectedOption {
-                Section {
-                    row("Dues", quote.amountCents, quote.currency)
-                    row("\(Self.methodName(option.method)) fee", option.feeCents, quote.currency)
-                    row("Total", option.totalCents, quote.currency).fontWeight(.semibold)
+                CardSection {
+                    CardRow { row("Dues", quote.amountCents, quote.currency) }
+                    CardDivider()
+                    CardRow { row("\(Self.methodName(option.method)) fee", option.feeCents, quote.currency) }
+                    CardDivider()
+                    CardRow { row("Total", option.totalCents, quote.currency).fontWeight(.semibold) }
                 } footer: {
                     Text("Your HOA's balance updates once the payment settles: usually right away for cards, a few business days for bank transfers.")
                 }
             }
         } else if working {
-            Section { ProgressView().frame(maxWidth: .infinity) }
+            ProgressView().frame(maxWidth: .infinity)
         }
     }
 
@@ -160,19 +170,15 @@ struct CheckoutView: View {
         Button {
             Task { await pay(option) }
         } label: {
-            Group {
-                if working {
-                    ProgressView().tint(.white)
-                } else {
-                    Label("Pay \(Money.text(option.totalCents, quote?.currency ?? "USD"))", systemImage: "lock.fill")
-                }
+            if working {
+                ProgressView().tint(.white)
+            } else {
+                Label("Pay \(Money.text(option.totalCents, quote?.currency ?? "USD"))", systemImage: "lock.fill")
             }
-            .font(.headline)
-            .frame(maxWidth: .infinity, minHeight: 50)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(PrimaryButtonStyle())
         .disabled(working || amountFocused)
-        .padding()
+        .padding(Theme.padding)
         .background(.bar)
     }
 
@@ -317,30 +323,34 @@ private struct StartedView: View {
     let payment: PaymentResponse
 
     var body: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 8) {
-                Label("\(Money.text(payment.totalCents, payment.currency)) by \(CheckoutView.methodName(payment.method).lowercased())",
-                      systemImage: "checkmark.seal.fill")
-                    .font(.headline)
-                    .foregroundStyle(.tint)
-                Text("Reference \(payment.reference)").font(.subheadline).foregroundStyle(.secondary)
+        CardSection {
+            CardRow {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("\(Money.text(payment.totalCents, payment.currency)) by \(CheckoutView.methodName(payment.method).lowercased())",
+                          systemImage: "checkmark.seal.fill")
+                        .font(.headline)
+                        .foregroundStyle(.tint)
+                    Text("Reference \(payment.reference)").font(.subheadline).foregroundStyle(.secondary)
+                }
             }
         }
-        Section {
-            if payment.provider == "simulated" {
-                Text("Test payment: no money moves. It stays pending until it is completed on the development server.")
-                #if DEBUG
-                Text(verbatim: "$APP dev-payment-event --hoa <slug> --payment \(payment.reference) --status succeeded")
-                    .font(.caption.monospaced())
-                    .textSelection(.enabled)
-                #endif
-            } else if payment.method == "ach" {
-                Text("Bank payments take a few business days. It shows as processing on the Payments tab until it settles, and your balance updates then.")
-            } else {
-                Text("Your card payment is being confirmed. Your balance updates within a minute or two.")
+        CardSection(header: "What happens next") {
+            CardRow {
+                VStack(alignment: .leading, spacing: 8) {
+                    if payment.provider == "simulated" {
+                        Text("Test payment: no money moves. It stays pending until it is completed on the development server.")
+                        #if DEBUG
+                        Text(verbatim: "$APP dev-payment-event --hoa <slug> --payment \(payment.reference) --status succeeded")
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                        #endif
+                    } else if payment.method == "ach" {
+                        Text("Bank payments take a few business days. It shows as processing on the Payments tab until it settles, and your balance updates then.")
+                    } else {
+                        Text("Your card payment is being confirmed. Your balance updates within a minute or two.")
+                    }
+                }
             }
-        } header: {
-            Text("What happens next")
         } footer: {
             Text("The payment shows on the Payments tab. You'll get an email receipt once it settles.")
         }

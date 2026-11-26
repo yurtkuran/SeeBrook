@@ -20,6 +20,7 @@ import cc.seebrook.platform.config.PaymentsConfig
 import cc.seebrook.platform.db.Database
 import cc.seebrook.platform.jobs.JobWorker
 import cc.seebrook.platform.jobs.PeriodicTask
+import cc.seebrook.app.cli.AlertCommands
 import cc.seebrook.tenant.HoaImageKind
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
@@ -142,7 +143,17 @@ Recurring payments (ED-59):
                              System action: no operator.
 
 Background jobs:
-  run-jobs                   Run queued jobs now (invitation emails, document scans) and exit. `serve` runs them continuously."""
+  run-jobs                   Run queued jobs now (invitation emails, document scans) and exit. `serve` runs them continuously.
+
+Operator alerts (ED-61), Root only:
+  list-alerts --operator <email> [--all]
+                             Open alerts (payments paused, mismatched payment events, failed jobs, stuck payments
+                             or jobs) with what to do; --all includes resolved ones. New alerts are emailed to
+                             the Root operators and logged with ALERT:.
+  resolve-alert --operator <email> --alert <id> --reason <text>
+                             Mark an alert handled (audited). Outages and backlogs resolve by themselves.
+  check-alerts               Run the stuck payment and job checks now. `serve` does this every 15 minutes.
+                             System action: no operator."""
 
 private val ADMIN_COMMANDS = setOf(
     "bootstrap-root", "grant-role", "revoke-role", "import-owners",
@@ -161,6 +172,8 @@ private val PAYMENT_COMMANDS = setOf(
     "recurring-schedule", "list-recurring", "run-recurring-charges",
 )
 
+private val ALERT_COMMANDS = setOf("list-alerts", "resolve-alert", "check-alerts")
+
 private fun usage(): Nothing {
     System.err.println(USAGE)
     exitProcess(2)
@@ -177,7 +190,7 @@ fun main(args: Array<String>) {
         "serve", "migrate", "seed-dev", "run-jobs" -> if (operands.isNotEmpty()) usage()
         "dev-invite" -> if (operands.size != 2) usage()
         "dev-token" -> if (devTokenOptions(operands) == null) usage()
-        in ADMIN_COMMANDS, in FINANCE_COMMANDS, in PAYMENT_COMMANDS -> {}
+        in ADMIN_COMMANDS, in FINANCE_COMMANDS, in PAYMENT_COMMANDS, in ALERT_COMMANDS -> {}
         "convert-register" -> {
             // Needs no configuration or database: it only reads the workbook and writes CSV files.
             try {
@@ -232,6 +245,25 @@ fun main(args: Array<String>) {
                         "list-balances" -> finance.listBalances(operands)
                         "account-statement" -> finance.accountStatement(operands)
                         else -> finance.reconcileBalances(operands)
+                    }
+                } catch (e: CommandException) {
+                    System.err.println("Error: ${e.message}")
+                    if (e.exitCode == 2) System.err.println(USAGE)
+                    exitProcess(e.exitCode)
+                }
+                println(output)
+            }
+            in ALERT_COMMANDS -> {
+                val alerts = AlertCommands(db)
+                val output = try {
+                    when (command) {
+                        "list-alerts" -> alerts.list(operands)
+                        "resolve-alert" -> alerts.resolve(operands)
+                        else -> {
+                            if (operands.isNotEmpty()) throw CommandException("check-alerts takes no options", 2)
+                            val stuck = AlertChecks(db).run()
+                            "Checked: ${stuck.payments} stuck payment(s), ${stuck.jobs} overdue background job(s). See list-alerts."
+                        }
                     }
                 } catch (e: CommandException) {
                     System.err.println("Error: ${e.message}")
@@ -342,10 +374,13 @@ fun main(args: Array<String>) {
                         if (summary != RunRecurringCharges.Summary(0, 0, 0, 0, 0)) log.info("Recurring charges: {}", summary)
                     }.start()
                 }
+                // Stuck payments and background jobs (ED-61).
+                val checks = AlertChecks(db).let { c -> PeriodicTask("alerts", Duration.ofMinutes(15)) { c.run() }.start() }
                 try {
                     embeddedServer(Netty, port = config.httpPort) { seebrookModule(db, verifier, BackgroundJobs.storage(config), payments = payments) }
                         .start(wait = true)
                 } finally {
+                    checks.close()
                     recurring?.close()
                     monitor?.close()
                     worker?.close()

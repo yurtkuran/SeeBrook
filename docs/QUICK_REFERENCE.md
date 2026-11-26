@@ -61,6 +61,18 @@ $APP help                       # every command
 - HOA logo (shown in the app): `$APP set-hoa-logo --operator <email> --hoa channel-harbor --file assets/hoas/channel-harbor/logo.png` (PNG or JPEG, up to 2 MB; `remove-hoa-logo` to clear it).
 - HOA community photo (Home screen): `$APP set-hoa-photo --operator <email> --hoa channel-harbor --file <photo.jpg>` (PNG or JPEG, up to 10 MB; landscape works best; `remove-hoa-photo` to clear it). Use a photo the HOA may use.
 
+### Alerts (Root only)
+
+```bash
+$APP list-alerts --operator <email> [--all]     # open alerts with what to do first
+$APP resolve-alert --operator <email> --alert <id> --reason "<what was done>"
+$APP check-alerts                                # stuck payments and jobs now (serve: every 15 minutes)
+```
+
+- Each new alert is emailed once to the Root operators (locally: Mailpit, http://localhost:8025) and logged with `ALERT:`.
+- Raised for: payments paused by a provider outage, a provider event that doesn't match a payment, a refused payment lookup, payments not settled in the usual time (card 2 days, bank 10 days, unsent recurring charge 1 day), a background job that gave up, jobs waiting over 30 minutes.
+- Outages and stuck payments or jobs resolve by themselves (with a "Resolved" email); resolve the others once handled.
+
 ### Sign in as a test owner (development only)
 
 ```bash

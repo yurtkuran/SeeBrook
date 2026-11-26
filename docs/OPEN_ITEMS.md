@@ -15,7 +15,7 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 - [ ] **Xcode 26.2**: then upgrade Firebase to 13 (ED-50).
 - [ ] **Stripe live setup**: platform account, Channel Harbor's connected account (capabilities `card_payments`, `us_bank_account_ach_payments` and `transfers` only), webhook with the 8 events, restricted key. *Before the first real payment.*
 - [ ] **Card surcharge**: confirm it is allowed and set the amount. *Before real card payments; until then the card fee is $0 or cards are off.*
-- [ ] **Hosting provider**: also settles object storage, alert delivery and backups. *Before TestFlight and the pilot.*
+- [ ] **Hosting provider**: also settles object storage, backups, and an outside uptime check on `/health/ready` (alerts are emailed already, ED-61). *Before TestFlight and the pilot.*
 - [ ] **Brevo account** and `seebrook.cc` domain authentication. *Before the first real invitation.*
 - [ ] **Apple Developer Program** ($99/yr). *At TestFlight; until then testing runs on the owner's iPhone with a free Personal Team.*
 - [ ] **Google Play account** ($25). *When the Android app starts.*
@@ -34,16 +34,17 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 - [ ] **Revisit the app's screen design** (Documents, Account) with the owner; the first versions follow Stitch loosely. Payments and Home now follow the owner's "Payments - Mobile" and "Home - Mobile" designs (ED-54, ED-56).
 - [ ] **Backend for the app**: push device registration, owner profile edits, account deletion (after the decision).
-- [ ] **M6**: ~~recurring plans, saved methods, charge run, cancellation at transfer (server)~~ → ~~app screens for saved methods and autopay (in review)~~ → alert delivery.
+- [ ] **M6**: ~~recurring plans, saved methods, charge run, cancellation at transfer (server)~~ → ~~app screens for saved methods and autopay~~ → ~~operator alerts by email (in review)~~.
 - [ ] **M7 pilot**: production setup (including the Channel Harbor logo and photo, `set-hoa-logo`, `set-hoa-photo`, and its recurring schedule, `recurring-schedule`), backup restore drill, security review, owner onboarding.
 - [ ] **Later**: Sign in with Apple (after the paid Apple Developer Program), financial admin web portal (before a second HOA), Android app.
 
 ## In review
 
-- M6 part 2: autopay in the iOS app (ED-60).
+- M6 part 3: operator alerts (ED-61).
 
 ## Recently closed
 
+- 2026-11-25: Autopay in the iOS app merged (ED-60, PR #37).
 - 2026-11-25: Recurring payments on the server merged (ED-59, PR #36).
 - 2026-11-25: Checkout part 2, Stripe payment sheet and Stripe test mode merged (ED-58, PR #35); the M5 iOS app is complete.
 - 2026-11-25: Channel Harbor's dues schedule decided: monthly on the 1st; owners may choose monthly, quarterly or annual plans.

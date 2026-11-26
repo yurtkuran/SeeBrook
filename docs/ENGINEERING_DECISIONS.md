@@ -75,6 +75,7 @@ This complements — and never overrides — the approved product constraints in
 | ED-59 | Recurring payments (server): HOA schedules, saved methods, fixed-amount plans, hourly charge run, no retries | Accepted | 2026-11-25 |
 | ED-60 | Autopay in the iOS app: Payments row, Autopay screen, Stripe setup sheet, signing in again | Accepted | 2026-11-25 |
 | ED-61 | Operator alerts: recorded once per problem, emailed to Root operators, CLI to list and resolve | Accepted | 2026-11-26 |
+| ED-62 | `send-test-email`: Root sends one email at once through the configured provider to check it and the sending domain | Accepted | 2026-11-26 |
 
 ## Pending decisions
 
@@ -82,7 +83,7 @@ This complements — and never overrides — the approved product constraints in
 |---|---|---|
 | Hosting provider | M1 (before first deploy) | Low-cost managed PostgreSQL + single service; escalate only material cost/security differences |
 | Root MFA (Identity Platform upgrade) | Before a second HOA joins the beta | Deferred by owner (GA-04 amendment, ED-28). Upgrade the Firebase project to Identity Platform and enforce TOTP for Root |
-| Brevo account and sending domain | Before the first real invitation is sent | Provider chosen by owner (ED-36). Owner creates the Brevo account (under the pending legal entity), authenticates `seebrook.cc` (SPF, DKIM, DMARC) and turns off open/click tracking; then set `SEEBROOK_EMAIL_MODE=brevo`, `SEEBROOK_BREVO_API_KEY` and `SEEBROOK_EMAIL_FROM`, and send a test email. Until then production keeps invitation emails queued |
+| Brevo account and sending domain | Before the first real invitation is sent | Provider chosen by owner (ED-36); account created by the owner 2026-11-26; the owner authenticated the subdomain `email.seebrook.cc` (Brevo code, DKIM CNAMEs, DMARC `p=none`), so Brevo's sending reputation stays separate from the MXroute mailboxes on `seebrook.cc`; sender `Seebrook <no-reply@email.seebrook.cc>`; open/click tracking off; API key created. Next: `send-test-email` (ED-62). In production set `SEEBROOK_EMAIL_MODE=brevo`, `SEEBROOK_BREVO_API_KEY` and `SEEBROOK_EMAIL_FROM`; until then production keeps emails queued |
 | Account deletion vs financial record retention | Before App Store submission | App Store requires in-app account deletion; financial history must be retained. Proposed: delete/anonymize identity and contact data, retain ledger and audit records. Owner approval + legal check — user-facing/legal |
 | Privacy policy and terms of service | Before App Store submission | Required by the App Store; decide author and publisher (Seebrook vs HOA) — legal |
 | Legal entity / account ownership | Before developer accounts, the production Firebase project and processor setup | Who owns developer accounts, domain, Firebase/Google Cloud project, platform and processor relationship (individual, company or HOA) — owner to decide |
@@ -807,6 +808,13 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - **Verification:** tests: an outage opens one alert for that HOA, emailed once, and clears with a second email when payments resume; a mismatched reconciliation lookup opens one alert by payment reference; stuck card payments open one alert per HOA after 2 days (not for payments awaiting the owner), count repeats without new emails, and clear once settled; a job that gives up opens an alert with its kind and error type only; an alert email that gives up is not alerted; overdue jobs open and clear a backlog alert; alerts are emailed to the Root operator with the guidance; resolving needs Root and a reason and is audited; the CLI lists and resolves. Full `./gradlew build` passed. Locally: an overdue test job opened a backlog alert, `list-alerts` showed it, and both the alert and the "Resolved" email reached Mailpit.
 - **Alternatives considered:** only routing log lines to a pager — needs hosting and log collection first, and keeps no record of what was handled. A separate alert recipients setting — the Root operator is the person who acts on them for the pilot; a setting can come with more operators. Re-sending reminders for open alerts — `list-alerts` shows them; one email per problem avoids alert fatigue.
 
+## ED-62 — Test email command
+- **Status:** Accepted · **Date:** 2026-11-26 · **Decided by:** engineering; owner created the Brevo account · **Related:** ED-31, ED-33, ED-36
+- **Decision:** `send-test-email --operator <email> --to <address>` sends one plain email at once (not through the outbox) through whichever provider `SEEBROOK_EMAIL_MODE` selects, and reports whether the provider accepted it. Root only. Audited as `ops.test_email_sent` with the provider and the recipient's domain, never the address. Used to check Brevo and the `email.seebrook.cc` authentication before real owners get email.
+- **Locally:** the Brevo key and sender live in `.env.brevo` (git-ignored, like `.env.stripe`) and are loaded only for this command. The local backend keeps using Mailpit: its test owners have `@example.test` addresses, and sending those through Brevo would bounce and harm the domain's reputation.
+- **Verification:** tests: a Root operator's test email is sent once and audited with the domain only; non-Root operators, disabled email, an invalid address and a provider rejection are refused and leave no audit entry.
+- **Alternatives considered:** queuing it like other emails — the point is to see the provider's answer right away. Running the local backend on Brevo — fake addresses would bounce.
+
 ## Change log
 - 2026-11-13 — Created. Recorded ED-01–ED-12 and pending decisions.
 - 2026-11-13 — Added ED-13 (logical services in one deployable, service map, boundary rules) and ED-14 (action-style use cases). The owner's earlier service map was an illustrative example, not a decision.
@@ -848,3 +856,4 @@ Each exception must state what it is, why it cannot live solely in the backend, 
 - 2026-11-25 — M6 part 1: added ED-59 (recurring payments: HOA schedules with next-business-day charging, saved methods through the provider, fixed-amount plans with approval and recent sign-in, an hourly charge run with one charge per plan and date, no retries, holds on fee or method changes, cancellation when an ownership ends). Channel Harbor's schedule from the owner.
 - 2026-11-25 — M6 part 2: added ED-60 (autopay in the iOS app: Payments row, Autopay screen, Stripe setup sheet, approval from the payment quote, signing in again when the server asks). Amends ED-58: the local Stripe forwarder uses the test secret key, not `stripe login`.
 - 2026-11-26 — M6 part 3: added ED-61 (operator alerts: recorded once per problem, emailed to Root operators, raised for outages, mismatches, refused lookups, stuck payments, failed and overdue jobs; `list-alerts`, `resolve-alert`, `check-alerts`). Updated the "Alert delivery" pending item; completes M6.
+- 2026-11-26 — Added ED-62 (`send-test-email`). Updated the Brevo pending item (account created and `email.seebrook.cc` authenticated by the owner).

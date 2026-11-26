@@ -73,6 +73,18 @@ $APP check-alerts                                # stuck payments and jobs now (
 - Raised for: payments paused by a provider outage, a provider event that doesn't match a payment, a refused payment lookup, payments not settled in the usual time (card 2 days, bank 10 days, unsent recurring charge 1 day), a background job that gave up, jobs waiting over 30 minutes.
 - Outages and stuck payments or jobs resolve by themselves (with a "Resolved" email); resolve the others once handled.
 
+### Test email through Brevo
+
+```bash
+# .env.brevo (repository root, never committed):
+#   SEEBROOK_BREVO_API_KEY=xkeysib-…
+#   SEEBROOK_EMAIL_FROM=Seebrook <no-reply@email.seebrook.cc>
+(set -a; . ./.env.brevo; set +a; SEEBROOK_EMAIL_MODE=brevo $APP send-test-email --operator <email> --to <your address>)
+```
+
+- Root only; sends one email at once and says whether Brevo accepted it. Check it lands in the inbox, not spam.
+- Only for real addresses: the local backend keeps sending to Mailpit.
+
 ### Sign in as a test owner (development only)
 
 ```bash

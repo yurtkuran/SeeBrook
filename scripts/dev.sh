@@ -4,6 +4,7 @@
 #   scripts/dev.sh firebase start everything, signing in with the development Firebase project (ED-50)
 #   scripts/dev.sh stripe   start everything with Stripe test mode (ED-58): keys from .env.stripe, webhooks
 #                           forwarded by the Stripe CLI, and the local Channel Harbor paid into the test account
+#   scripts/dev.sh firebase stripe   both: real sign-in and Stripe test mode
 #   scripts/dev.sh down     stop the local database (data is kept)
 #   scripts/dev.sh reset    stop the local database and delete its data
 set -euo pipefail
@@ -12,7 +13,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE=(docker compose -f "$ROOT/infra/local/docker-compose.yml")
 STRIPE=false
 
-case "${1:-up}" in
+if [ $# -eq 0 ]; then set -- up; fi
+for MODE in "$@"; do
+case "$MODE" in
   down)
     "${COMPOSE[@]}" down
     exit 0
@@ -63,10 +66,11 @@ case "${1:-up}" in
     STRIPE=true
     ;;
   *)
-    echo "Usage: scripts/dev.sh [up|firebase|stripe|down|reset]" >&2
+    echo "Usage: scripts/dev.sh [up | firebase | stripe | firebase stripe | down | reset]" >&2
     exit 2
     ;;
 esac
+done
 
 echo "==> Starting local PostgreSQL, Mailpit (emails: http://localhost:8025), S3Mock and ClamAV"
 "${COMPOSE[@]}" up -d --wait

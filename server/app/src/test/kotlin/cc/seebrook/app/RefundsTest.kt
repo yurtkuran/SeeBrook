@@ -227,6 +227,7 @@ class RefundsTest {
         sent.single { it.first.email == "owner-a2@example.test" }.second.let {
             it.subject shouldBe "Your payment for A2 did not go through"
             it.text shouldContain "Nothing was credited to your account."
+            it.text shouldContain "did not go through. Your card was declined."
         }
         sent.single { it.second.subject.startsWith("Refund issued") }.second.text.let {
             it shouldContain "refunded $155.00 of your payment ${p.reference} for A1"

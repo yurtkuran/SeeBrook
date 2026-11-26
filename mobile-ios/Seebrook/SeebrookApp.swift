@@ -13,6 +13,8 @@ struct SeebrookApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                // Every bordered button uses the app's radius (Theme).
+                .buttonBorderShape(.roundedRectangle(radius: Theme.radius))
                 .environment(model)
                 .task { await model.start() }
                 .onOpenURL { GIDSignIn.sharedInstance.handle($0) }

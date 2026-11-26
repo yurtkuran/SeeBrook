@@ -24,33 +24,36 @@ struct DocumentsView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                if !categories.isEmpty {
-                    categoryChips
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                }
-                Section {
-                    ForEach(documents, id: \.id) { document in
-                        Button { open(document) } label: {
-                            DocumentRow(document: document, opening: opening == document.id)
-                        }
-                        .foregroundStyle(.primary)
-                        .disabled(opening != nil)
-                        .onAppear { if document.id == documents.last?.id { loadMore() } }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    if !categories.isEmpty {
+                        categoryChips.padding(.horizontal, -Theme.padding)
                     }
-                    if loading { ProgressView().frame(maxWidth: .infinity) }
-                } header: {
                     if !documents.isEmpty {
                         HStack {
-                            Text("Community documents")
+                            SectionHeader("Community documents")
                             Spacer()
-                            Text(total == 1 ? "1 file" : "\(total) files")
+                            SectionHeader(total == 1 ? "1 file" : "\(total) files")
+                        }
+                        .padding(.horizontal, Theme.padding)
+                        .padding(.bottom, -6)
+                        CardSection {
+                            ForEach(Array(documents.enumerated()), id: \.element.id) { index, document in
+                                if index > 0 { CardDivider() }
+                                Button { open(document) } label: {
+                                    CardRow { DocumentRow(document: document, opening: opening == document.id) }
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(opening != nil)
+                                .onAppear { if document.id == documents.last?.id { loadMore() } }
+                            }
                         }
                     }
+                    if loading { ProgressView().frame(maxWidth: .infinity) }
                 }
+                .padding(Theme.padding)
             }
+            .background(Theme.screen)
             .overlay { emptyState }
             .searchable(text: $search, prompt: "Search bylaws, minutes, budgets…")
             .refreshable { await reload() }
@@ -90,7 +93,7 @@ struct DocumentsView: View {
                     chip(category.name, selected: categoryId == category.id) { categoryId = category.id }
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, Theme.padding)
             .padding(.vertical, 4)
         }
     }
@@ -202,7 +205,7 @@ private struct DocumentRow: View {
             }
             .foregroundStyle(.red)
             .frame(width: 48, height: 48)
-            .background(.red.opacity(0.1), in: .rect(cornerRadius: 8))
+            .background(.red.opacity(0.1), in: .rect(cornerRadius: Theme.radius))
             .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 4) {

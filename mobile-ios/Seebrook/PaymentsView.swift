@@ -23,37 +23,39 @@ struct PaymentsView: View {
     #if DEBUG
     /// Scripted runs can open checkout or autopay once the balance loads
     /// (SIMCTL_CHILD_SEEBROOK_CHECKOUT=1, SIMCTL_CHILD_SEEBROOK_AUTOPAY=1).
-    @State private var openCheckout = ProcessInfo.processInfo.environment["SEEBROOK_CHECKOUT"] != nil
-    @State private var openAutopay = ProcessInfo.processInfo.environment["SEEBROOK_AUTOPAY"] != nil
+    @State private var openCheckout = ScriptedLaunch.take("SEEBROOK_CHECKOUT") != nil
+    @State private var openAutopay = ScriptedLaunch.take("SEEBROOK_AUTOPAY") != nil
     #endif
 
     private var property: PropertyResponse? { model.selectedProperty(in: account) }
 
     var body: some View {
         NavigationStack {
-            List {
-                if let property, let summary {
-                    Section {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: Theme.sectionSpacing) {
+                    if let property, let summary {
                         BalanceCard(property: property, summary: summary,
                                     onPay: summary.onlinePayments == "available" ? { paying = true } : nil)
-                    }
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    if let autopay, autopay.plan != nil || !autopay.options.isEmpty {
-                        Section {
-                            Button { showingAutopay = true } label: { AutopayRow(autopay: autopay) }
-                                .foregroundStyle(.primary)
+                        if let autopay, autopay.plan != nil || !autopay.options.isEmpty {
+                            CardSection {
+                                Button { showingAutopay = true } label: { CardRow { AutopayRow(autopay: autopay) } }
+                                    .buttonStyle(.plain)
+                            }
                         }
                     }
+                    if summary != nil {
+                        if !onlinePayments.isEmpty { online }
+                        history
+                    }
+                    if loading && summary == nil {
+                        ProgressView().frame(maxWidth: .infinity)
+                    }
                 }
-                if summary != nil {
-                    if !onlinePayments.isEmpty { online }
-                    history
-                }
-                if loading && summary == nil {
-                    ProgressView().frame(maxWidth: .infinity).listRowBackground(Color.clear)
-                }
+                .padding(Theme.padding)
+                // Same distance from the top as the Home cards.
+                .padding(.top, 15)
             }
+            .background(Theme.screen)
             .overlay { emptyState }
             .refreshable { await reload() }
             // The balance card names the unit and HOA, so the screen has no title bar (design).
@@ -73,20 +75,23 @@ struct PaymentsView: View {
     }
 
     @ViewBuilder private var history: some View {
-        Section {
-            ForEach(transactions, id: \.id) { transaction in
-                TransactionRow(transaction: transaction)
-                    .onAppear { if transaction.id == transactions.last?.id { loadMore() } }
+        CardSection(header: "History") {
+            // Lazy, so the next page loads when the last row scrolls into view.
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(transactions.enumerated()), id: \.element.id) { index, transaction in
+                    if index > 0 { CardDivider() }
+                    CardRow { TransactionRow(transaction: transaction) }
+                        .onAppear { if transaction.id == transactions.last?.id { loadMore() } }
+                }
             }
-            if loading { ProgressView().frame(maxWidth: .infinity) }
+            if loading { CardRow { ProgressView().frame(maxWidth: .infinity) } }
             if let carriedForward, transactions.count >= total {
-                CarriedForwardRow(carriedForward: carriedForward)
+                if !transactions.isEmpty { CardDivider() }
+                CardRow { CarriedForwardRow(carriedForward: carriedForward) }
             }
             if transactions.isEmpty && carriedForward == nil && !loading {
-                Text("No transactions yet.").foregroundStyle(.secondary)
+                CardRow { Text("No transactions yet.").foregroundStyle(.secondary) }
             }
-        } header: {
-            SectionHeader("History")
         } footer: {
             if !transactions.isEmpty {
                 Text("Newest first. Quote the reference when asking about a transaction.")
@@ -96,12 +101,11 @@ struct PaymentsView: View {
 
     /// Recent online payments with their status: processing and failed ones appear only here.
     private var online: some View {
-        Section {
-            ForEach(onlinePayments.prefix(5), id: \.id) { payment in
-                OnlinePaymentRow(payment: payment)
+        CardSection(header: "Online payments") {
+            ForEach(Array(onlinePayments.prefix(5).enumerated()), id: \.element.id) { index, payment in
+                if index > 0 { CardDivider() }
+                CardRow { OnlinePaymentRow(payment: payment) }
             }
-        } header: {
-            SectionHeader("Online payments")
         } footer: {
             Text("A payment joins the history once it settles.")
         }
@@ -210,7 +214,7 @@ struct BalanceCard: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 18)
             .frame(maxWidth: .infinity)
-            .background(.background, in: .rect(cornerRadius: 14))
+            .card()
         } else {
             full
         }
@@ -237,7 +241,7 @@ struct BalanceCard: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity)
-        .background(.background, in: .rect(cornerRadius: 14))
+        .card()
     }
 
     private var caption: some View {
@@ -271,7 +275,7 @@ struct BalanceCard: View {
                     .frame(maxWidth: .infinity, minHeight: 48)
             }
             .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.roundedRectangle(radius: 12))
+            
         } else if summary.onlinePayments == "unavailable" {
             Label("Online payments are paused for now. Your balance and history are still up to date.", systemImage: "pause.circle")
                 .font(.footnote)
@@ -324,7 +328,7 @@ struct BalanceCard: View {
 
 /// Autopay on the Payments tab: on, paused or waiting for approval, with the next payment; or an
 /// offer to set it up. Opens the autopay screen.
-private struct AutopayRow: View {
+struct AutopayRow: View {
     let autopay: RecurringResponse
 
     var body: some View {
@@ -332,7 +336,7 @@ private struct AutopayRow: View {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .foregroundStyle(.tint)
                 .frame(width: 40, height: 40)
-                .background(.tint.opacity(0.1), in: .rect(cornerRadius: 8))
+                .background(.tint.opacity(0.1), in: .rect(cornerRadius: Theme.radius))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Autopay").font(.subheadline.weight(.semibold))
@@ -372,7 +376,7 @@ private struct TransactionRow: View {
             Image(systemName: icon)
                 .foregroundStyle(.tint)
                 .frame(width: 40, height: 40)
-                .background(.tint.opacity(0.1), in: .rect(cornerRadius: 8))
+                .background(.tint.opacity(0.1), in: .rect(cornerRadius: Theme.radius))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 // Kotlin's `description` is `description_` in Swift (NSObject has its own).
@@ -435,7 +439,7 @@ private struct OnlinePaymentRow: View {
                 Text("\(CheckoutView.methodName(payment.method)) payment")
                     .font(.subheadline.weight(.semibold))
                 Text(detail).font(.caption).foregroundStyle(.secondary)
-                if let reason = payment.failureReason, payment.status == "failed" {
+                if let reason = payment.failureMessage, payment.status == "failed" {
                     Text(reason).font(.caption).foregroundStyle(.red)
                 }
             }
@@ -502,14 +506,14 @@ private struct HoaLogo: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: 36, height: 36)
-                    .clipShape(.rect(cornerRadius: 8))
+                    .clipShape(.rect(cornerRadius: Theme.radius))
                     .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
             } else {
                 Image(systemName: "building.2.fill")
                     .font(.subheadline)
                     .foregroundStyle(.tint)
                     .frame(width: 36, height: 36)
-                    .background(.tint.opacity(0.1), in: .rect(cornerRadius: 8))
+                    .background(.tint.opacity(0.1), in: .rect(cornerRadius: Theme.radius))
             }
         }
         .accessibilityHidden(true)
@@ -528,7 +532,7 @@ private struct CarriedForwardRow: View {
             Image(systemName: "arrow.turn.left.up")
                 .foregroundStyle(.tint)
                 .frame(width: 40, height: 40)
-                .background(.tint.opacity(0.1), in: .rect(cornerRadius: 8))
+                .background(.tint.opacity(0.1), in: .rect(cornerRadius: Theme.radius))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Balance carried forward").font(.subheadline.weight(.semibold))

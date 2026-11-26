@@ -51,7 +51,10 @@ data class PaymentResponse(
     val currency: String,
     val createdAt: String,
     val succeededAt: String? = null,
+    /** The provider's code, for support; show [failureMessage] to the owner. */
     val failureReason: String? = null,
+    /** Why it failed, in words for the owner (ED-64). */
+    val failureMessage: String? = null,
     val provider: String? = null,
     val clientParams: Map<String, String>? = null,
 )

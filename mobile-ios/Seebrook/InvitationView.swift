@@ -13,26 +13,27 @@ struct InvitationView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    TextField("Invitation code or link", text: $input, axis: .vertical)
-                        .lineLimit(2...4)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.body.monospaced())
-                    Button {
-                        Task { await accept() }
-                    } label: {
-                        if working { ProgressView() } else { Text("Accept invitation") }
+            CardScreen {
+                CardSection(header: firstProperty ? "Link your property" : "Add a property") {
+                    CardRow {
+                        TextField("Invitation code or link", text: $input, axis: .vertical)
+                            .lineLimit(2...4)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.body.monospaced())
                     }
-                    .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || working)
-                } header: {
-                    Text(firstProperty ? "Link your property" : "Add a property")
                 } footer: {
                     Text("Your HOA emailed you an invitation. Copy the invitation code, or the whole link, from that email and paste it here. Use the same email address you signed in with.")
                 }
+                Button {
+                    Task { await accept() }
+                } label: {
+                    if working { ProgressView().tint(.white) } else { Text("Accept invitation") }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || working)
                 if let message {
-                    Section { Text(message).foregroundStyle(.red) }
+                    CardSection { CardRow { Text(message).foregroundStyle(.red) } }
                 }
             }
             .navigationTitle("Invitation")

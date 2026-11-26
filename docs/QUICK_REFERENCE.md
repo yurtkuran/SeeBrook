@@ -113,6 +113,7 @@ $APP dev-token owner07@example.test --days 7   # token to paste into Seebrook De
 - Checkout (simulated): turn on simulated payments for the local HOA with `configure-payments ... --provider simulated` (Online payments section), then pay in the app and finish it with `$APP dev-payment-event --hoa channel-harbor --payment PAY-… --status succeeded`.
 - Checkout (Stripe test mode): `scripts/dev.sh stripe` (see Stripe test mode below), then pay in the app with Stripe's test card `4242 4242 4242 4242` (any future date, any CVC and ZIP), or Bank transfer with the "Test Institution". The payment settles by itself through the forwarded webhook.
 - Scripted simulator run: `SIMCTL_CHILD_SEEBROOK_SERVER_URL=http://localhost:8088 SIMCTL_CHILD_SEEBROOK_DEV_TOKEN=$TOKEN SIMCTL_CHILD_SEEBROOK_TAB=documents xcrun simctl launch booted cc.seebrook.app.dev` (add `SIMCTL_CHILD_SEEBROOK_CHECKOUT=1` or `SIMCTL_CHILD_SEEBROOK_AUTOPAY=1` with `TAB=payments` to open checkout or autopay).
+- Look: one corner radius for every card and button, `Theme.radius` in `mobile-ios/Seebrook/Theme.swift`; build screens from `CardScreen` / `CardSection` / `CardRow` rather than system `Form` or `List`.
 - Debug builds are "Seebrook Dev" (`cc.seebrook.app.dev`); release builds are "Seebrook" (`cc.seebrook.app`).
 - No simulators or devices listed? Install the iOS platform in Xcode > Settings > Components.
 
@@ -176,6 +177,7 @@ $APP run-recurring-charges                   # charge what is due now (serve doe
 
 ```bash
 scripts/dev.sh stripe            # API with Stripe test mode; webhooks forwarded by the Stripe CLI
+scripts/dev.sh firebase stripe   # the same, with real sign-in (email and password, Google)
 tail -f build/stripe-listen.log  # events Stripe sent and the server's answers
 ```
 

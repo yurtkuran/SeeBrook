@@ -130,7 +130,10 @@ data class Payment(
     val failureReason: String?,
     val createdAt: Instant,
     val succeededAt: Instant?,
-)
+) {
+    /** Why it failed, in words for the owner (ED-64); null unless it failed. */
+    val failureMessage: String? get() = if (status == PaymentStatus.FAILED) PaymentFailures.describe(failureReason, method) else null
+}
 
 internal object PaymentStore {
     const val MIN_PAYMENT_CENTS = 100L

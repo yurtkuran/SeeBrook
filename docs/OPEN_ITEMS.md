@@ -1,7 +1,7 @@
 ---
 title: Seebrook open items
 tags: [seebrook, status]
-updated: 2026-11-25
+updated: 2026-11-26
 ---
 
 # Open items
@@ -33,16 +33,17 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 - [ ] **Revisit the app's screen design** (Documents, Account) with the owner; the first versions follow Stitch loosely. Payments and Home now follow the owner's "Payments - Mobile" and "Home - Mobile" designs (ED-54, ED-56).
 - [ ] **Backend for the app**: push device registration, owner profile edits, account deletion (after the decision).
-- [ ] **M6**: ~~recurring plans, saved methods, charge run, cancellation at transfer (server)~~ → ~~app screens for saved methods and autopay~~ → ~~operator alerts by email~~. Complete.
 - [ ] **M7 pilot**: production setup (including a production Brevo key and `SEEBROOK_EMAIL_*` settings, the Channel Harbor logo and photo, `set-hoa-logo`, `set-hoa-photo`, and its recurring schedule, `recurring-schedule`), backup restore drill, security review, owner onboarding.
 - [ ] **Later**: Sign in with Apple (after the paid Apple Developer Program), financial admin web portal (before a second HOA), Android app.
 
 ## In review
 
-- Brevo verified and the no-reply decision (docs only, ED-63).
+- App polish: declined payments explained in words (ED-64); one corner radius across the app, checkout titled "Payment" (ED-65); autopay on Account and sign-in landing on Home (ED-66); `scripts/dev.sh firebase stripe`.
 
 ## Recently closed
 
+- 2026-11-26: Brevo verification and the no-reply decision merged (ED-63, PR #41).
+- 2026-11-26: M6 complete: recurring payments, autopay in the app and operator alerts (ED-59–ED-61).
 - 2026-11-26: Brevo verified: `email.seebrook.cc` authenticated and a test email reached the inbox; owner emails stay no-reply (ED-63).
 - 2026-11-26: Test email command merged (ED-62, PR #40).
 - 2026-11-26: Brevo account created by the owner.

@@ -43,13 +43,13 @@ struct AutopayView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            CardScreen {
                 if let overview {
                     content(overview)
                 } else if loading {
                     ProgressView().frame(maxWidth: .infinity)
                 } else if let message {
-                    Section { Text(message).foregroundStyle(.red) }
+                    CardSection { CardRow { Text(message).foregroundStyle(.red) } }
                     Button("Try again") { Task { await load() } }
                 }
             }
@@ -107,30 +107,31 @@ struct AutopayView: View {
     // MARK: Content
 
     @ViewBuilder private func content(_ overview: RecurringResponse) -> some View {
-        Section {
-            PropertyHeader(property: property)
-        }
-        .listRowBackground(Color.clear)
+        PropertyHeader(property: property)
         if let notice {
-            Section { Label(notice, systemImage: "checkmark.circle.fill").foregroundStyle(.green) }
+            CardSection { CardRow { Label(notice, systemImage: "checkmark.circle.fill").foregroundStyle(.green) } }
         }
         if let message {
-            Section { Text(message).foregroundStyle(.red) }
+            CardSection { CardRow { Text(message).foregroundStyle(.red) } }
         }
         if !overview.available {
-            Section {
-                Label("Online payments are paused right now, so autopay can't be set up or changed. Your existing autopay is kept.",
-                      systemImage: "pause.circle")
-                    .foregroundStyle(.secondary)
+            CardSection {
+                CardRow {
+                    Label("Online payments are paused right now, so autopay can't be set up or changed. Your existing autopay is kept.",
+                          systemImage: "pause.circle")
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         if let plan = overview.plan, !editing {
             PlanSummary(plan: plan)
             planActions(plan, available: overview.available)
         } else if overview.options.isEmpty {
-            Section {
-                Text("\(property.hoaName) doesn't offer autopay yet. You can still pay each time on the Payments tab.")
-                    .foregroundStyle(.secondary)
+            CardSection {
+                CardRow {
+                    Text("\(property.hoaName) doesn't offer autopay yet. You can still pay each time on the Payments tab.")
+                        .foregroundStyle(.secondary)
+                }
             }
         } else {
             form(overview)
@@ -138,28 +139,39 @@ struct AutopayView: View {
     }
 
     @ViewBuilder private func planActions(_ plan: RecurringPlanResponse, available: Bool) -> some View {
-        Section {
+        CardSection {
             if plan.status == "needs_approval" {
-                Button("Review and approve") { startEditing(plan) }.disabled(!available)
+                actionRow("Review and approve") { startEditing(plan) }.disabled(!available)
             } else {
-                Button("Change amount, schedule or method") { startEditing(plan) }.disabled(!available)
+                actionRow("Change amount, schedule or method") { startEditing(plan) }.disabled(!available)
             }
+            CardDivider()
             if plan.status == "active" {
-                Button("Pause autopay") { Task { await change("pause") } }
+                actionRow("Pause autopay") { Task { await change("pause") } }
+                CardDivider()
             } else if plan.status == "paused" {
-                Button("Resume autopay") { Task { await change("resume") } }.disabled(!available)
+                actionRow("Resume autopay") { Task { await change("resume") } }.disabled(!available)
+                CardDivider()
             }
-            Button("Cancel autopay", role: .destructive) { confirmingCancel = true }
+            actionRow("Cancel autopay", role: .destructive) { confirmingCancel = true }
         } footer: {
             Text("Each payment gets its own email receipt and shows on the Payments tab.")
         }
     }
 
+    private func actionRow(_ title: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
+        Button(role: role, action: action) {
+            CardRow { Text(title).foregroundStyle(role == .destructive ? AnyShapeStyle(.red) : AnyShapeStyle(.tint)) }
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: The plan form
 
     @ViewBuilder private func form(_ overview: RecurringResponse) -> some View {
-        Section {
-            ForEach(overview.options, id: \.frequency) { option in
+        CardSection(header: "How often") {
+            ForEach(Array(overview.options.enumerated()), id: \.element.frequency) { index, option in
+                if index > 0 { CardDivider() }
                 choice(selected: frequency == option.frequency) {
                     frequency = option.frequency
                 } label: {
@@ -171,65 +183,73 @@ struct AutopayView: View {
                     }
                 }
             }
-        } header: {
-            Text("How often")
         } footer: {
             Text("Payments are made on \(property.hoaName)'s schedule. A date on a weekend or bank holiday moves to the next business day.")
         }
-        Section {
-            HStack {
-                Text("Amount")
-                Spacer()
-                TextField("0.00", text: $amountText)
-                    .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.trailing)
-                    .font(.title3.monospacedDigit())
-                    .focused($amountFocused)
-                    .onSubmit { Task { await requote() } }
+        CardSection(header: "Dues each time") {
+            CardRow {
+                HStack {
+                    Text("Amount")
+                    Spacer()
+                    TextField("0.00", text: $amountText)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .font(.title3.monospacedDigit())
+                        .focused($amountFocused)
+                        .onSubmit { Task { await requote() } }
+                }
             }
             if amountFocused {
-                Button("Update total") {
+                CardDivider()
+                actionRow("Update total") {
                     amountFocused = false
                     Task { await requote() }
                 }
             }
-        } header: {
-            Text("Dues each time")
         } footer: {
             Text("The same amount is paid each time. Enter the dues for the whole period: for quarterly, three months of dues.")
         }
-        Section {
+        CardSection(header: "Pay with") {
             ForEach(usableMethods(overview), id: \.id) { method in
-                choice(selected: methodId == method.id) {
-                    methodId = method.id
-                    Task { await requote() }
-                } label: {
-                    Label(method.label, systemImage: method.method == "ach" ? "building.columns" : "creditcard")
-                }
-                .swipeActions {
+                HStack(spacing: 0) {
+                    choice(selected: methodId == method.id) {
+                        methodId = method.id
+                        Task { await requote() }
+                    } label: {
+                        Label(method.label, systemImage: method.method == "ach" ? "building.columns" : "creditcard")
+                    }
                     if overview.plan?.methodId != method.id {
-                        Button("Remove", role: .destructive) { removing = method }
+                        Button { removing = method } label: {
+                            Image(systemName: "trash").foregroundStyle(.secondary).padding(.horizontal, Theme.padding)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove \(method.label)")
                     }
                 }
+                CardDivider()
             }
-            ForEach(overview.acceptedMethods, id: \.self) { kind in
+            ForEach(Array(overview.acceptedMethods.enumerated()), id: \.element) { index, kind in
+                if index > 0 { CardDivider() }
                 Button {
                     Task { await addMethod(kind) }
                 } label: {
-                    Label(kind == "ach" ? "Add a bank account" : "Add a card", systemImage: "plus.circle")
+                    CardRow {
+                        Label(kind == "ach" ? "Add a bank account" : "Add a card", systemImage: "plus.circle").foregroundStyle(.tint)
+                    }
                 }
+                .buttonStyle(.plain)
                 .disabled(!overview.available)
             }
-        } header: {
-            Text("Pay with")
         } footer: {
             Text("Card and bank details are entered with Stripe, our payment processor, and kept by Stripe. Seebrook only sees the last four digits.")
         }
         if let quote, let cents = CheckoutView.cents(amountText) {
-            Section {
-                row("Dues", cents)
-                row("\(CheckoutView.methodName(quote.method)) fee", quote.feeCents)
-                row("Each payment", quote.totalCents).fontWeight(.semibold)
+            CardSection {
+                CardRow { row("Dues", cents) }
+                CardDivider()
+                CardRow { row("\(CheckoutView.methodName(quote.method)) fee", quote.feeCents) }
+                CardDivider()
+                CardRow { row("Each payment", quote.totalCents).fontWeight(.semibold) }
             } footer: {
                 if let frequency, let first = overview.options.first(where: { $0.frequency == frequency }),
                    let method = overview.methods.first(where: { $0.id == methodId }) {
@@ -237,7 +257,7 @@ struct AutopayView: View {
                 }
             }
         } else if quoting {
-            Section { ProgressView().frame(maxWidth: .infinity) }
+            ProgressView().frame(maxWidth: .infinity)
         }
     }
 
@@ -245,35 +265,33 @@ struct AutopayView: View {
         Button {
             Task { await approve() }
         } label: {
-            Group {
-                if working {
-                    ProgressView().tint(.white)
-                } else if let quote {
-                    Label(overview?.plan == nil ? "Turn on autopay · \(Money.text(quote.totalCents, "USD"))"
-                                                : "Approve · \(Money.text(quote.totalCents, "USD"))",
-                          systemImage: "lock.fill")
-                } else {
-                    Text(overview?.plan == nil ? "Turn on autopay" : "Approve")
-                }
+            if working {
+                ProgressView().tint(.white)
+            } else if let quote {
+                Label(overview?.plan == nil ? "Turn on autopay · \(Money.text(quote.totalCents, "USD"))"
+                                            : "Approve · \(Money.text(quote.totalCents, "USD"))",
+                      systemImage: "lock.fill")
+            } else {
+                Text(overview?.plan == nil ? "Turn on autopay" : "Approve")
             }
-            .font(.headline)
-            .frame(maxWidth: .infinity, minHeight: 50)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(PrimaryButtonStyle())
         .disabled(working || amountFocused || quote == nil || frequency == nil || methodId == nil)
-        .padding()
+        .padding(Theme.padding)
         .background(.bar)
     }
 
     private func choice<Content: View>(selected: Bool, action: @escaping () -> Void, @ViewBuilder label: () -> Content) -> some View {
         Button(action: action) {
-            HStack {
-                Image(systemName: selected ? "largecircle.fill.circle" : "circle").foregroundStyle(.tint)
-                label()
-                Spacer()
+            CardRow {
+                HStack {
+                    Image(systemName: selected ? "largecircle.fill.circle" : "circle").foregroundStyle(.tint)
+                    label()
+                    Spacer()
+                }
             }
         }
-        .foregroundStyle(.primary)
+        .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -515,21 +533,26 @@ private struct PlanSummary: View {
     let plan: RecurringPlanResponse
 
     var body: some View {
-        Section {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(Money.text(plan.totalCents, plan.currency)) \(AutopayView.every(plan.frequency))")
-                        .font(.headline)
-                    Text(plan.methodLabel).font(.subheadline).foregroundStyle(.secondary)
+        CardSection {
+            CardRow {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(Money.text(plan.totalCents, plan.currency)) \(AutopayView.every(plan.frequency))")
+                            .font(.headline)
+                        Text(plan.methodLabel).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    AutopayStatus(status: plan.status)
                 }
-                Spacer()
-                AutopayStatus(status: plan.status)
             }
             if plan.status == "active", let next = plan.nextChargeDate {
-                LabeledContent("Next payment", value: AutopayView.day(next))
+                CardDivider()
+                CardRow { LabeledContent("Next payment", value: AutopayView.day(next)) }
             }
-            LabeledContent("Dues", value: Money.text(plan.duesCents, plan.currency))
-            LabeledContent("Fee", value: Money.text(plan.feeCents, plan.currency))
+            CardDivider()
+            CardRow { LabeledContent("Dues", value: Money.text(plan.duesCents, plan.currency)) }
+            CardDivider()
+            CardRow { LabeledContent("Fee", value: Money.text(plan.feeCents, plan.currency)) }
         } footer: {
             switch plan.status {
             case "paused":
@@ -579,55 +602,66 @@ private struct ReauthenticationView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    Text("For your security, confirm it's you before changing how you pay.")
-                }
+            CardScreen {
+                Text("For your security, confirm it's you before changing how you pay.")
+                    .padding(.horizontal, Theme.padding)
                 switch model.reauthentication {
                 case let .firebase(usesPassword, usesGoogle, email):
                     if usesPassword {
-                        Section {
-                            if let email { LabeledContent("Email", value: email) }
-                            SecureField("Password", text: $password)
-                                .textContentType(.password)
-                                .onSubmit { Task { await confirmPassword() } }
-                            Button("Confirm") { Task { await confirmPassword() } }
-                                .disabled(password.isEmpty)
+                        CardSection {
+                            if let email {
+                                CardRow { LabeledContent("Email", value: email) }
+                                CardDivider()
+                            }
+                            CardRow {
+                                SecureField("Password", text: $password)
+                                    .textContentType(.password)
+                                    .onSubmit { Task { await confirmPassword() } }
+                            }
                         }
+                        Button("Confirm") { Task { await confirmPassword() } }
+                            .buttonStyle(PrimaryButtonStyle())
+                            .disabled(password.isEmpty)
                     }
                     if usesGoogle {
-                        Section {
-                            Button("Continue with Google") { Task { await confirmGoogle() } }
-                        }
+                        Button("Continue with Google") { Task { await confirmGoogle() } }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity)
                     }
                     if !usesPassword && !usesGoogle {
-                        Section {
+                        CardSection {
                             Button("Sign out") { model.signOut(message: "Sign in again to continue.") }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.red)
+                                .padding(Theme.padding)
                         } footer: {
                             Text("Sign out, then sign in again to continue.")
                         }
                     }
                 case .developmentToken:
                     #if DEBUG
-                    Section {
-                        TextField("Development token", text: $token, axis: .vertical)
-                            .font(.caption.monospaced())
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
-                        Button("Use this token") {
-                            model.replaceDevelopmentToken(token)
-                            finished(true)
+                    CardSection {
+                        CardRow {
+                            TextField("Development token", text: $token, axis: .vertical)
+                                .font(.caption.monospaced())
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
                         }
-                        .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     } footer: {
                         Text(verbatim: "Development sign-in: paste a new token from `seebrook dev-token`.")
                     }
+                    Button("Use this token") {
+                        model.replaceDevelopmentToken(token)
+                        finished(true)
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     #else
                     EmptyView()
                     #endif
                 }
                 if let message, !message.isEmpty {
-                    Section { Text(message).foregroundStyle(.red) }
+                    CardSection { CardRow { Text(message).foregroundStyle(.red) } }
                 }
             }
             .disabled(working)

@@ -2,6 +2,8 @@ package cc.seebrook.app
 
 import cc.seebrook.app.support.TestPostgres
 import cc.seebrook.db.generated.jobs.Tables.OUTBOX_JOB
+import cc.seebrook.platform.alerts.Alerts
+import cc.seebrook.platform.alerts.CheckJobBacklog
 import cc.seebrook.platform.db.Database
 import cc.seebrook.platform.jobs.Job
 import cc.seebrook.platform.jobs.JobHandler
@@ -9,6 +11,8 @@ import cc.seebrook.platform.jobs.JobRunner
 import cc.seebrook.platform.jobs.Jobs
 import cc.seebrook.platform.jobs.PermanentFailure
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -65,7 +69,7 @@ class JobRunnerTest {
         makeDue(); failing.drain()
         makeDue(); failing.drain()
         status("b") shouldBe "failed"
-        val job = db.dsl.selectFrom(OUTBOX_JOB).fetchSingle()
+        val job = db.dsl.selectFrom(OUTBOX_JOB).where(OUTBOX_JOB.KIND.eq("test.job")).fetchSingle()
         job.attempts shouldBe 3
         job.lastError shouldBe "IllegalStateException"
         makeDue(); failing.drain() shouldBe 0
@@ -117,6 +121,42 @@ class JobRunnerTest {
         runner(JobHandler { throw Rejected() }).drain() shouldBe 1
 
         status("f") shouldBe "failed"
-        db.dsl.selectFrom(OUTBOX_JOB).fetchSingle().attempts shouldBe 1
+        db.dsl.selectFrom(OUTBOX_JOB).where(OUTBOX_JOB.KIND.eq("test.job")).fetchSingle().attempts shouldBe 1
+    }
+
+    private fun openAlerts() = db.transaction { Alerts.list(it, includeResolved = false) }
+
+    @Test
+    fun `a job that gives up opens an operator alert with its kind and error type only`() {
+        enqueue("g")
+        runner(JobHandler { throw IllegalStateException("owner@example.test") }, maxAttempts = 1).drain()
+
+        val alert = openAlerts().single()
+        alert.kind shouldBe "job_failed"
+        alert.summary shouldBe "Background job test.job gave up after 1 attempt(s)"
+        alert.details.toString() shouldContain "IllegalStateException"
+        alert.details.toString() shouldNotContain "example.test"
+        db.dsl.fetchCount(OUTBOX_JOB, OUTBOX_JOB.KIND.eq(Alerts.EMAIL_KIND)) shouldBe 1
+    }
+
+    @Test
+    fun `an alert email that gives up is only logged, never alerted again`() {
+        db.transaction { Alerts.raise(it, "test", "test:1", null, "Something happened") } shouldBe true
+        JobRunner(db, mapOf(Alerts.EMAIL_KIND to JobHandler { throw IllegalStateException() }), maxAttempts = 1).drain() shouldBe 1
+        openAlerts().map { it.key } shouldBe listOf("test:1")
+        db.dsl.fetchCount(OUTBOX_JOB, OUTBOX_JOB.KIND.eq(Alerts.EMAIL_KIND)) shouldBe 1
+    }
+
+    @Test
+    fun `jobs waiting too long open a backlog alert that clears once they run`() {
+        enqueue("h", kind = "email.unconfigured")
+        CheckJobBacklog(db)() shouldBe 0 // just queued
+        db.dsl.update(OUTBOX_JOB).set(OUTBOX_JOB.RUN_AFTER, DSL.currentOffsetDateTime().minus(1)).execute()
+        CheckJobBacklog(db)() shouldBe 1
+        openAlerts().single().details.toString() shouldContain "email.unconfigured"
+
+        db.transaction { Jobs.cancelQueued(it, "h") }
+        CheckJobBacklog(db)() shouldBe 0
+        openAlerts() shouldBe emptyList()
     }
 }

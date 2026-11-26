@@ -1,9 +1,12 @@
 package cc.seebrook.platform.jobs
 
 import cc.seebrook.db.generated.jobs.Tables.OUTBOX_JOB
+import cc.seebrook.platform.alerts.Alerts
 import cc.seebrook.platform.db.Database
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonObject
 import org.jooq.DSLContext
 import org.jooq.Field
@@ -165,7 +168,24 @@ class JobRunner(
             update.set(OUTBOX_JOB.STATUS, JobStatus.QUEUED)
                 .set(OUTBOX_JOB.RUN_AFTER, nowPlus(backoff(job.attempt)))
         }
-        next.where(OUTBOX_JOB.ID.eq(job.id)).and(OUTBOX_JOB.STATUS.eq(JobStatus.RUNNING)).execute()
+        val changed = next.where(OUTBOX_JOB.ID.eq(job.id)).and(OUTBOX_JOB.STATUS.eq(JobStatus.RUNNING)).execute() == 1
+        if (giveUp && changed) {
+            if (job.kind == Alerts.EMAIL_KIND) {
+                // Never an alert about an alert email: the log is the last resort.
+                log.error("ALERT: alert email job {} could not be sent ({})", job.id, error.javaClass.simpleName)
+            } else {
+                Alerts.raise(
+                    tx, "job_failed", "job_failed:${job.id}", job.hoaId,
+                    "Background job ${job.kind} gave up after ${job.attempt} attempt(s)",
+                    buildJsonObject {
+                        put("job", job.id.toString())
+                        put("kind", job.kind)
+                        put("attempts", job.attempt)
+                        put("error", error.javaClass.simpleName)
+                    },
+                )
+            }
+        }
         return giveUp
     }
 

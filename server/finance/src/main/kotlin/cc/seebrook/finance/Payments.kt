@@ -7,6 +7,7 @@ import cc.seebrook.db.generated.finance.Tables.PAYMENT_EVENT
 import cc.seebrook.db.generated.finance.Tables.PAYMENT_METHOD_FEE
 import cc.seebrook.db.generated.finance.Tables.PAYMENT_SETTINGS
 import cc.seebrook.db.generated.finance.tables.records.PaymentRecord
+import cc.seebrook.platform.alerts.Alerts
 import cc.seebrook.platform.audit.Audit
 import cc.seebrook.platform.audit.AuditEntry
 import cc.seebrook.platform.auth.Channel
@@ -639,6 +640,19 @@ class HandlePaymentEvent(private val db: Database, private val providers: Paymen
                 .set(PAYMENT_EVENT.OUTCOME, outcome.code)
                 .set(PAYMENT_EVENT.DETAIL, detail?.take(200))
                 .execute()
+            if (outcome == Outcome.MISMATCH && payment != null) {
+                // Never applied (GA-18): an operator investigates. One alert per payment.
+                Alerts.raise(
+                    tx, "payment_mismatch", "payment_mismatch:${payment.id}", payment.hoaId,
+                    "Payment ${payment.reference}: a $providerName event doesn't match (${detail ?: "mismatch"})",
+                    buildJsonObject {
+                        put("payment", payment.reference)
+                        put("event", event.eventId)
+                        put("event type", event.type)
+                        put("status in Seebrook", payment.status)
+                    },
+                )
+            }
             outcome
         }
 

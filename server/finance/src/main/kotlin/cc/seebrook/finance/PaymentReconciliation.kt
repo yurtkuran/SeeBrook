@@ -2,11 +2,13 @@ package cc.seebrook.finance
 
 import cc.seebrook.db.generated.finance.Tables.PAYMENT
 import cc.seebrook.db.generated.finance.Tables.PAYMENT_SETTINGS
+import cc.seebrook.platform.alerts.Alerts
 import cc.seebrook.platform.audit.Audit
 import cc.seebrook.platform.audit.AuditEntry
 import cc.seebrook.platform.auth.Channel
 import cc.seebrook.platform.db.Database
 import cc.seebrook.platform.payments.PaymentEvent
+import cc.seebrook.platform.payments.PaymentMethod
 import cc.seebrook.platform.payments.PaymentProviderException
 import cc.seebrook.platform.payments.PaymentProviders
 import cc.seebrook.platform.payments.PaymentRequestRejectedException
@@ -29,6 +31,8 @@ internal object PaymentOutage {
     const val THRESHOLD = 3
     private val log = LoggerFactory.getLogger(PaymentOutage::class.java)
 
+    fun outageKey(hoaId: UUID) = "payments_outage:$hoaId"
+
     /** Counts one unanswered call. True when this call started an outage. */
     fun failed(db: Database, hoaId: UUID, provider: String): Boolean = db.transaction { tx ->
         // The row lock serializes concurrent failures, so only one of them starts the outage.
@@ -40,7 +44,14 @@ internal object PaymentOutage {
         if (row.outageSince != null || row.providerFailures < THRESHOLD) return@transaction false
         tx.update(PAYMENT_SETTINGS).set(PAYMENT_SETTINGS.OUTAGE_SINCE, DSL.currentOffsetDateTime())
             .where(PAYMENT_SETTINGS.HOA_ID.eq(hoaId)).execute()
-        log.error("ALERT: payments paused for HOA {}: {} did not answer {} calls in a row", hoaId, provider, row.providerFailures)
+        Alerts.raise(
+            tx, "payments_outage", outageKey(hoaId), hoaId,
+            "Online payments paused: $provider did not answer ${row.providerFailures} calls in a row",
+            buildJsonObject {
+                put("provider", provider)
+                put("failures", row.providerFailures)
+            },
+        )
         Audit.record(
             tx, null, Channel.SYSTEM,
             AuditEntry(
@@ -76,6 +87,7 @@ internal object PaymentOutage {
             .set(PAYMENT_SETTINGS.PROVIDER_FAILURES, 0)
             .where(PAYMENT_SETTINGS.HOA_ID.eq(hoaId)).execute()
         log.warn("Payments resumed for HOA {}: {} answers again (paused since {})", hoaId, provider, since)
+        Alerts.clear(tx, outageKey(hoaId), "$provider answers again; online payments resumed")
         Audit.record(
             tx, null, Channel.SYSTEM,
             AuditEntry(
@@ -194,6 +206,16 @@ class MonitorPayments(
             } catch (e: PaymentRequestRejectedException) {
                 // The provider answered but refused (e.g. unknown payment): investigate, not an outage.
                 log.error("{} refused to look up payment {}: {}", provider.name, payment.id, e.message)
+                db.transaction { tx ->
+                    Alerts.raise(
+                        tx, "payment_lookup_refused", "payment_lookup_refused:${payment.id}", hoaId,
+                        "${provider.name} refused to look up payment ${payment.reference}",
+                        buildJsonObject {
+                            put("payment", payment.reference)
+                            put("provider payment", payment.providerPaymentId)
+                        },
+                    )
+                }
                 markReconciled(payment.id, now)
                 result += Summary(checked = 1, providerErrors = 1)
                 continue
@@ -234,5 +256,53 @@ class MonitorPayments(
 
     private fun markReconciled(paymentId: UUID, now: OffsetDateTime) {
         db.transaction { tx -> tx.update(PAYMENT).set(PAYMENT.RECONCILED_AT, now).where(PAYMENT.ID.eq(paymentId)).execute() }
+    }
+}
+
+/**
+ * Payments stuck longer than they should be (ED-61), per HOA: card payments still processing after
+ * [cardAfter], bank payments after [bankAfter] (bank debits take a few business days), and
+ * recurring charges not yet sent to the provider after [unsentAfter]. Opens `payments_unsettled`
+ * for the HOA while any is stuck and clears it once none is. Payments waiting for the owner to
+ * finish checkout are not stuck: the owner may never finish.
+ */
+class CheckUnsettledPayments(
+    private val db: Database,
+    private val clock: Clock = Clock.systemUTC(),
+    private val cardAfter: Duration = Duration.ofDays(2),
+    private val bankAfter: Duration = Duration.ofDays(10),
+    private val unsentAfter: Duration = Duration.ofDays(1),
+) {
+    /** How many payments are stuck now. */
+    operator fun invoke(): Int = db.transaction { tx ->
+        val now = OffsetDateTime.now(clock)
+        val processing = PAYMENT.STATUS.eq(PaymentStatus.PROCESSING.code)
+        val stuck = tx.select(PAYMENT.HOA_ID, PAYMENT.REFERENCE).from(PAYMENT)
+            .where(
+                processing.and(PAYMENT.METHOD.eq(PaymentMethod.CARD.code)).and(PAYMENT.UPDATED_AT.lt(now.minus(cardAfter)))
+                    .or(processing.and(PAYMENT.METHOD.ne(PaymentMethod.CARD.code)).and(PAYMENT.UPDATED_AT.lt(now.minus(bankAfter))))
+                    .or(
+                        PAYMENT.STATUS.eq(PaymentStatus.CREATED.code).and(PAYMENT.RECURRING_PLAN_ID.isNotNull)
+                            .and(PAYMENT.PROVIDER_PAYMENT_ID.isNull).and(PAYMENT.CREATED_AT.lt(now.minus(unsentAfter))),
+                    ),
+            )
+            .orderBy(PAYMENT.CREATED_AT)
+            .fetchGroups({ requireNotNull(it.value1()) }, { it.value2() })
+        val prefix = "payments_unsettled:"
+        Alerts.openKeys(tx, prefix).forEach { key ->
+            val hoaId = runCatching { UUID.fromString(key.removePrefix(prefix)) }.getOrNull()
+            if (hoaId == null || hoaId !in stuck) Alerts.clear(tx, key, "no payments are stuck any more")
+        }
+        stuck.forEach { (hoaId, references) ->
+            Alerts.raise(
+                tx, "payments_unsettled", "$prefix$hoaId", hoaId,
+                "${references.size} payment(s) not settled in the usual time",
+                buildJsonObject {
+                    put("payments", references.take(10).joinToString())
+                    if (references.size > 10) put("and more", references.size - 10)
+                },
+            )
+        }
+        stuck.values.sumOf { it.size }
     }
 }

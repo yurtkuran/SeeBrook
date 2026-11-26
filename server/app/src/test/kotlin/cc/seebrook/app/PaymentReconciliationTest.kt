@@ -13,6 +13,7 @@ import cc.seebrook.db.generated.finance.Tables.LEDGER_ENTRY
 import cc.seebrook.db.generated.finance.Tables.PAYMENT
 import cc.seebrook.db.generated.finance.Tables.PAYMENT_EVENT
 import cc.seebrook.db.generated.jobs.Tables.OUTBOX_JOB
+import cc.seebrook.finance.CheckUnsettledPayments
 import cc.seebrook.finance.ConfigurePayments
 import cc.seebrook.finance.FeeRule
 import cc.seebrook.finance.GetAccountSummary
@@ -27,6 +28,7 @@ import cc.seebrook.identity.AcceptInvitation
 import cc.seebrook.identity.BootstrapRoot
 import cc.seebrook.identity.IssueInvitation
 import cc.seebrook.identity.ResolveOperator
+import cc.seebrook.platform.alerts.Alerts
 import cc.seebrook.platform.auth.UserActor
 import cc.seebrook.platform.payments.CreatePaymentRequest
 import cc.seebrook.platform.payments.PaymentMethod
@@ -36,6 +38,7 @@ import cc.seebrook.platform.payments.PaymentProviders
 import cc.seebrook.platform.payments.ProviderPaymentSnapshot
 import cc.seebrook.platform.payments.ProviderPaymentStatus
 import cc.seebrook.platform.payments.SimulatedPaymentProvider
+import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
@@ -157,6 +160,11 @@ class PaymentReconciliationTest {
 
     private fun audited(action: String) = db.dsl.fetchCount(EVENT, EVENT.ACTION.eq(action))
 
+    private fun alerts(kind: String, includeResolved: Boolean = false) =
+        db.transaction { Alerts.list(it, includeResolved) }.filter { it.kind == kind }
+
+    private fun alertEmails() = db.dsl.fetchCount(OUTBOX_JOB, OUTBOX_JOB.KIND.eq(Alerts.EMAIL_KIND))
+
     @Test
     fun `a payment whose webhook was lost settles once from the provider's record`() {
         val opening = balance("A1")
@@ -204,6 +212,13 @@ class PaymentReconciliationTest {
         // Asked again later: recorded once, not again on every pass.
         MonitorPayments(db, providers, later(3))().mismatched shouldBe 0
         status(odd) shouldBe "processing"
+
+        // An operator is alerted once, by payment reference (ED-61).
+        val alert = alerts("payment_mismatch").single()
+        alert.hoaId shouldBe hoa
+        alert.summary shouldContain "doesn't match (amount or currency differs)"
+        alert.details["payment"].toString() shouldContain "PAY-"
+        alertEmails() shouldBe 1
     }
 
     @Test
@@ -219,6 +234,9 @@ class PaymentReconciliationTest {
         GetPaymentSettings(db)(root, hoa)?.outageSince.shouldNotBeNull()
         GetPaymentSettings(db)(root, otherHoa)?.outageSince.shouldBeNull()
         audited("finance.payments_outage_started") shouldBe 1
+        // One alert, emailed once, for that HOA only (ED-61).
+        alerts("payments_outage").single().hoaId shouldBe hoa
+        alertEmails() shouldBe 1
         PaymentCommands(db, providers).settings(listOf("--operator", "root@example.test", "--hoa", "hoa-x")) shouldContain "PAUSED: provider unreachable"
 
         // Still down: stays paused, and nothing else is asked for that HOA.
@@ -231,6 +249,11 @@ class PaymentReconciliationTest {
         availability() shouldBe OnlinePayments.AVAILABLE
         audited("finance.payments_outage_ended") shouldBe 1
         payment("A1") // paying works again
+
+        // The alert cleared by itself, with a second email saying so.
+        alerts("payments_outage").shouldBeEmpty()
+        alerts("payments_outage", includeResolved = true).single().resolvedBy.shouldBeNull()
+        alertEmails() shouldBe 2
     }
 
     @Test
@@ -262,5 +285,27 @@ class PaymentReconciliationTest {
         provider.down = true
         initiate("A1") shouldBe InitiatePayment.Result.ProviderUnavailable
         availability() shouldBe OnlinePayments.AVAILABLE
+    }
+
+    @Test
+    fun `payments stuck longer than usual open one alert per HOA, which clears once they settle`() {
+        val (card, cardId) = payment("A1")
+        val (_, _) = payment("A2", status = null) // waiting for the owner at checkout: never stuck
+        CheckUnsettledPayments(db, later(47))() shouldBe 0
+        alerts("payments_unsettled").shouldBeEmpty()
+
+        CheckUnsettledPayments(db, later(49))() shouldBe 1
+        val alert = alerts("payments_unsettled").single()
+        alert.hoaId shouldBe hoa
+        alert.details["payments"].toString() shouldContain "PAY-"
+        CheckUnsettledPayments(db, later(50))() shouldBe 1
+        alerts("payments_unsettled").single().occurrences shouldBe 2
+        alertEmails() shouldBe 1
+
+        webhook(cardId, ProviderPaymentStatus.SUCCEEDED) shouldBe HandlePaymentEvent.Outcome.APPLIED
+        status(card) shouldBe "succeeded"
+        CheckUnsettledPayments(db, later(51))() shouldBe 0
+        alerts("payments_unsettled").shouldBeEmpty()
+        alertEmails() shouldBe 2
     }
 }

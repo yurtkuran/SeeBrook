@@ -28,7 +28,7 @@ subprojects {
 // services are reached through their public Kotlin API. `server:app` is the composition root and
 // may not touch tables directly, except its development tooling (devtools/).
 val schemaOwnership = mapOf(
-    "server/platform" to setOf("audit", "jobs"),
+    "server/platform" to setOf("audit", "jobs", "ops"),
     "server/tenant" to setOf("tenant"),
     "server/property" to setOf("property"),
     "server/identity" to setOf("identity"),

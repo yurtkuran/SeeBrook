@@ -93,3 +93,13 @@ class UserContacts(private val db: Database) {
             ?.takeIf { it.value3() == "active" }
             ?.let { Recipient(it.value1(), it.value2()) }
 }
+
+/** Where operator alerts go (ED-61): every active user with a current Root role. */
+class RootContacts(private val db: Database) {
+    fun all(): List<Recipient> =
+        db.dsl.selectDistinct(USER_ACCOUNT.EMAIL, USER_ACCOUNT.DISPLAY_NAME).from(USER_ACCOUNT)
+            .join(ROLE_ASSIGNMENT).on(ROLE_ASSIGNMENT.USER_ID.eq(USER_ACCOUNT.ID))
+            .where(ROLE_ASSIGNMENT.ROLE.eq(Role.ROOT.code)).and(ROLE_ASSIGNMENT.REVOKED_AT.isNull)
+            .and(USER_ACCOUNT.STATUS.eq("active"))
+            .fetch { Recipient(it.value1(), it.value2()) }
+}

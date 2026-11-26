@@ -21,6 +21,7 @@ import cc.seebrook.platform.db.Database
 import cc.seebrook.platform.jobs.JobWorker
 import cc.seebrook.platform.jobs.PeriodicTask
 import cc.seebrook.app.cli.AlertCommands
+import cc.seebrook.app.cli.EmailCommands
 import cc.seebrook.tenant.HoaImageKind
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
@@ -153,7 +154,12 @@ Operator alerts (ED-61), Root only:
   resolve-alert --operator <email> --alert <id> --reason <text>
                              Mark an alert handled (audited). Outages and backlogs resolve by themselves.
   check-alerts               Run the stuck payment and job checks now. `serve` does this every 15 minutes.
-                             System action: no operator."""
+                             System action: no operator.
+
+Email:
+  send-test-email --operator <email> --to <address>
+                             Root only: send one test email now through the configured provider (SEEBROOK_EMAIL_MODE),
+                             to check it and the sending domain. Audited with the recipient's domain only."""
 
 private val ADMIN_COMMANDS = setOf(
     "bootstrap-root", "grant-role", "revoke-role", "import-owners",
@@ -172,7 +178,7 @@ private val PAYMENT_COMMANDS = setOf(
     "recurring-schedule", "list-recurring", "run-recurring-charges",
 )
 
-private val ALERT_COMMANDS = setOf("list-alerts", "resolve-alert", "check-alerts")
+private val ALERT_COMMANDS = setOf("list-alerts", "resolve-alert", "check-alerts", "send-test-email")
 
 private fun usage(): Nothing {
     System.err.println(USAGE)
@@ -259,6 +265,7 @@ fun main(args: Array<String>) {
                     when (command) {
                         "list-alerts" -> alerts.list(operands)
                         "resolve-alert" -> alerts.resolve(operands)
+                        "send-test-email" -> EmailCommands(db, config.email, BackgroundJobs.emailGateway(config)).sendTest(operands)
                         else -> {
                             if (operands.isNotEmpty()) throw CommandException("check-alerts takes no options", 2)
                             val stuck = AlertChecks(db).run()

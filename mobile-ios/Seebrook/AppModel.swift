@@ -249,6 +249,78 @@ final class AppModel {
         try await signedIn { try await $0.payments(propertyId: propertyId).payments }
     }
 
+    // MARK: Autopay (ED-59, ED-60)
+
+    func recurring(propertyId: String) async throws -> RecurringResponse {
+        try await signedIn { try await $0.recurring(propertyId: propertyId) }
+    }
+
+    func startMethodSetup(propertyId: String, method: String) async throws -> MethodSetupResponse {
+        try await signedIn { try await $0.startMethodSetup(propertyId: propertyId, method: method) }
+    }
+
+    func completeMethodSetup(propertyId: String, setupId: String) async throws -> SavedMethodResponse {
+        try await signedIn { try await $0.completeMethodSetup(propertyId: propertyId, setupId: setupId) }
+    }
+
+    func removeSavedMethod(propertyId: String, methodId: String) async throws {
+        try await signedIn { try await $0.removeSavedMethod(propertyId: propertyId, methodId: methodId) }
+    }
+
+    func setUpRecurringPlan(propertyId: String, methodId: String, frequency: String,
+                            duesCents: Int64, feeCents: Int64, totalCents: Int64) async throws -> RecurringPlanResponse {
+        let request = SetUpRecurringPlanRequest(savedMethodId: methodId, frequency: frequency,
+                                                duesCents: duesCents, feeCents: feeCents, totalCents: totalCents)
+        return try await signedIn { try await $0.setUpRecurringPlan(propertyId: propertyId, request: request) }
+    }
+
+    /// `pause`, `resume` or `cancel`.
+    func changeRecurringPlan(propertyId: String, action: String) async throws -> RecurringPlanResponse {
+        try await signedIn { try await $0.changeRecurringPlan(propertyId: propertyId, action: action) }
+    }
+
+    /// How the owner confirms it's them when the server asks for a recent sign-in.
+    enum Reauthentication {
+        case firebase(password: Bool, google: Bool, email: String?)
+        /// Debug builds signed in with a development token: paste a newer one (ED-48).
+        case developmentToken
+    }
+
+    var reauthentication: Reauthentication {
+        if case .development = credential { return .developmentToken }
+        let methods = FirebaseSignIn.signInMethods
+        return .firebase(password: methods.password, google: methods.google, email: FirebaseSignIn.currentUser?.email)
+    }
+
+    /// Signs the owner in again; returns a message to show, or nil when it worked.
+    func reauthenticate(password: String) async -> String? {
+        do {
+            try await FirebaseSignIn.reauthenticate(password: password)
+            return nil
+        } catch {
+            return FirebaseSignIn.message(for: error)
+        }
+    }
+
+    func reauthenticateWithGoogle() async -> String? {
+        do {
+            try await FirebaseSignIn.reauthenticateWithGoogle()
+            return nil
+        } catch {
+            return FirebaseSignIn.isCancellation(error) ? "" : FirebaseSignIn.message(for: error)
+        }
+    }
+
+    #if DEBUG
+    /// A newer development token replaces the current one, keeping the account and screens.
+    func replaceDevelopmentToken(_ token: String) {
+        let token = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty, case .development = credential else { return }
+        credential = .development(token)
+        TokenStore.save(token)
+    }
+    #endif
+
     // MARK: Documents (ED-39, ED-52)
 
     func documentCategories(hoaId: String) async throws -> [DocumentCategoryResponse] {
@@ -440,6 +512,24 @@ final class AppModel {
             return "The payment service couldn't start this payment. Nothing was charged."
         case (_, "method_not_accepted"):
             return "Your HOA doesn't accept that payment method any more. Choose another."
+        case (_, "reauthentication_required"):
+            return "For your security, please sign in again to continue."
+        case (_, "recurring_not_offered"), (_, "frequency_not_offered"):
+            return "Your HOA doesn't offer this autopay schedule right now."
+        case (_, "method_not_found"):
+            return "That saved payment method is no longer available. Choose another or add one."
+        case (_, "method_in_use"):
+            return "Autopay uses this payment method. Change autopay to another method or cancel it first."
+        case (_, "setup_pending"):
+            return "Your bank account is still being verified. We'll finish saving it next time you open Autopay."
+        case (_, "setup_not_completed"):
+            return "The payment method wasn't saved. Nothing was charged. Please try again."
+        case (_, "plan_needs_approval"):
+            return "Review and approve your autopay again to turn it back on."
+        case (_, "plan_unchanged"):
+            return "Autopay is already set that way."
+        case (_, "no_plan"):
+            return "You don't have autopay set up for this property."
         case (_, "idempotency_conflict"):
             return "This payment was already started with different details. Please start again."
         case (_, "finance_unavailable"):

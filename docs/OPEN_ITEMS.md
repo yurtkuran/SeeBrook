@@ -26,7 +26,7 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 ## Decisions pending
 
 - [ ] **Account deletion**: proposed to remove identity and contact details and keep the ledger and audit history. Needs owner approval and a legal check. *Before App Store submission.*
-- [ ] **Privacy policy and terms**: who writes and publishes them (Seebrook or the HOA); include any payment authorization wording for the app (ED-54) and the recurring payment terms (ED-59). *Before App Store submission.*
+- [ ] **Privacy policy and terms**: who writes and publishes them (Seebrook or the HOA); include any payment authorization wording for the app (ED-54) and the recurring payment terms (ED-59; the app shows a plain authorization sentence for now, ED-60). *Before App Store submission.*
 - [ ] **Android owners in the pilot**: start with iOS owners only, or wait for Android. *Before M7.*
 - [ ] **Root MFA**: enforce TOTP for the root administrator. *Before a second HOA joins.*
 
@@ -34,16 +34,17 @@ A short checklist of what is still open. Details live in `ENGINEERING_DECISIONS.
 
 - [ ] **Revisit the app's screen design** (Documents, Account) with the owner; the first versions follow Stitch loosely. Payments and Home now follow the owner's "Payments - Mobile" and "Home - Mobile" designs (ED-54, ED-56).
 - [ ] **Backend for the app**: push device registration, owner profile edits, account deletion (after the decision).
-- [ ] **M6**: ~~recurring plans, saved methods, charge run, cancellation at transfer (server, in review)~~ → app screens for saved methods and autopay → alert delivery.
+- [ ] **M6**: ~~recurring plans, saved methods, charge run, cancellation at transfer (server)~~ → ~~app screens for saved methods and autopay (in review)~~ → alert delivery.
 - [ ] **M7 pilot**: production setup (including the Channel Harbor logo and photo, `set-hoa-logo`, `set-hoa-photo`, and its recurring schedule, `recurring-schedule`), backup restore drill, security review, owner onboarding.
 - [ ] **Later**: Sign in with Apple (after the paid Apple Developer Program), financial admin web portal (before a second HOA), Android app.
 
 ## In review
 
-- M6 part 1: recurring payments on the server (ED-59).
+- M6 part 2: autopay in the iOS app (ED-60).
 
 ## Recently closed
 
+- 2026-11-25: Recurring payments on the server merged (ED-59, PR #36).
 - 2026-11-25: Checkout part 2, Stripe payment sheet and Stripe test mode merged (ED-58, PR #35); the M5 iOS app is complete.
 - 2026-11-25: Channel Harbor's dues schedule decided: monthly on the 1st; owners may choose monthly, quarterly or annual plans.
 - 2026-11-25: Stripe sandbox set up by the owner (test keys, test connected account limited to card, bank and transfers, Stripe CLI).

@@ -88,7 +88,7 @@ $APP dev-token owner07@example.test --days 7   # token to paste into Seebrook De
 - Payments tab: needs the synthetic ledger. Load it once with `F=server/app/src/main/resources/dev-fixtures/channel-harbor`, then `$APP import-accounts "${O[@]}" --file $F/accounts.csv --commit --reason "Local fixtures"` and the same with `import-transactions` and `$F/transactions.csv`. Unit 05 owes $950, Unit 12 has a credit.
 - Checkout (simulated): turn on simulated payments for the local HOA with `configure-payments ... --provider simulated` (Online payments section), then pay in the app and finish it with `$APP dev-payment-event --hoa channel-harbor --payment PAY-… --status succeeded`.
 - Checkout (Stripe test mode): `scripts/dev.sh stripe` (see Stripe test mode below), then pay in the app with Stripe's test card `4242 4242 4242 4242` (any future date, any CVC and ZIP), or Bank transfer with the "Test Institution". The payment settles by itself through the forwarded webhook.
-- Scripted simulator run: `SIMCTL_CHILD_SEEBROOK_SERVER_URL=http://localhost:8088 SIMCTL_CHILD_SEEBROOK_DEV_TOKEN=$TOKEN SIMCTL_CHILD_SEEBROOK_TAB=documents xcrun simctl launch booted cc.seebrook.app.dev` (add `SIMCTL_CHILD_SEEBROOK_CHECKOUT=1` with `TAB=payments` to open checkout).
+- Scripted simulator run: `SIMCTL_CHILD_SEEBROOK_SERVER_URL=http://localhost:8088 SIMCTL_CHILD_SEEBROOK_DEV_TOKEN=$TOKEN SIMCTL_CHILD_SEEBROOK_TAB=documents xcrun simctl launch booted cc.seebrook.app.dev` (add `SIMCTL_CHILD_SEEBROOK_CHECKOUT=1` or `SIMCTL_CHILD_SEEBROOK_AUTOPAY=1` with `TAB=payments` to open checkout or autopay).
 - Debug builds are "Seebrook Dev" (`cc.seebrook.app.dev`); release builds are "Seebrook" (`cc.seebrook.app`).
 - No simulators or devices listed? Install the iOS platform in Xcode > Settings > Components.
 
@@ -145,6 +145,7 @@ $APP run-recurring-charges                   # charge what is due now (serve doe
 - Plans charge on the HOA's day; weekends and bank holidays move to the next business day. Quarterly plans charge in January, April, July and October (`--anchor-month` changes the first month); annual plans in January.
 - One charge per plan and date, ever. A failed charge is not retried: the owner is emailed and the plan continues next time. A fee change holds plans until each owner approves the new total. While payments are paused, a due charge waits up to 5 days, then is skipped.
 - Transferring a unit cancels the departing owner's plans.
+- In the app: Payments → **Autopay**. Add a card (Stripe test card `4242 4242 4242 4242`) or a bank account, pick how often and the amount, approve. Saving a method or turning on, changing or resuming autopay asks the owner to sign in again if their sign-in is over 10 minutes old (with a development token: paste a new one from `$APP dev-token`).
 - Locally, recurring payments settle like any simulated payment: `$APP dev-payment-event --hoa channel-harbor --payment PAY-… --status succeeded`.
 
 ### Stripe test mode (local)
@@ -155,7 +156,8 @@ tail -f build/stripe-listen.log  # events Stripe sent and the server's answers
 ```
 
 - Needs `.env.stripe` in the repository root (never committed): `SEEBROOK_STRIPE_SECRET_KEY=sk_test_…`, `SEEBROOK_STRIPE_PUBLISHABLE_KEY=pk_test_…`, `SEEBROOK_STRIPE_TEST_ACCOUNT=acct_…` (Stripe dashboard, sandbox: Developers → API keys; Connect → Accounts → the test account). Live keys are refused.
-- Needs the Stripe CLI: `brew install stripe/stripe-cli/stripe`, then `stripe login` (the Seebrook sandbox).
+- Needs the Stripe CLI: `brew install stripe/stripe-cli/stripe`. No `stripe login`: the script runs it with the test secret key from `.env.stripe`.
+- Is it forwarding? `build/stripe-listen.log` starts with `Ready!`; each event shows as `-->` and the server's `<-- [200]`. Is the API up? `curl localhost:8088/health/ready`.
 - Sets the local Channel Harbor to the test account (card 2.9% + $0.30, bank no fee) as `root@example.test`; set `SEEBROOK_DEV_OPERATOR` to use another local Root operator. Plain `scripts/dev.sh` afterwards needs `configure-payments ... --provider simulated` again.
 - An HOA's Stripe account needs only the capabilities `card_payments`, `us_bank_account_ach_payments` and `transfers`.
 

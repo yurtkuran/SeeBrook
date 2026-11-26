@@ -17,9 +17,14 @@ struct PaymentsView: View {
     @State private var error: String?
     @State private var onlinePayments: [PaymentResponse] = []
     @State private var paying = false
+    /// The owner's autopay, when the HOA offers it or the owner has a plan (ED-60).
+    @State private var autopay: RecurringResponse?
+    @State private var showingAutopay = false
     #if DEBUG
-    /// Scripted runs can open checkout once the balance loads (SIMCTL_CHILD_SEEBROOK_CHECKOUT=1).
+    /// Scripted runs can open checkout or autopay once the balance loads
+    /// (SIMCTL_CHILD_SEEBROOK_CHECKOUT=1, SIMCTL_CHILD_SEEBROOK_AUTOPAY=1).
     @State private var openCheckout = ProcessInfo.processInfo.environment["SEEBROOK_CHECKOUT"] != nil
+    @State private var openAutopay = ProcessInfo.processInfo.environment["SEEBROOK_AUTOPAY"] != nil
     #endif
 
     private var property: PropertyResponse? { model.selectedProperty(in: account) }
@@ -34,6 +39,12 @@ struct PaymentsView: View {
                     }
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
+                    if let autopay, autopay.plan != nil || !autopay.options.isEmpty {
+                        Section {
+                            Button { showingAutopay = true } label: { AutopayRow(autopay: autopay) }
+                                .foregroundStyle(.primary)
+                        }
+                    }
                 }
                 if summary != nil {
                     if !onlinePayments.isEmpty { online }
@@ -51,6 +62,11 @@ struct PaymentsView: View {
             .sheet(isPresented: $paying) {
                 if let property, let summary {
                     CheckoutView(property: property, summary: summary) { Task { await reload() } }
+                }
+            }
+            .sheet(isPresented: $showingAutopay) {
+                if let property {
+                    AutopayView(property: property) { Task { await reloadAutopay() } }
                 }
             }
         }
@@ -121,11 +137,16 @@ struct PaymentsView: View {
             let page = try await firstPage
             // Optional: the balance and history still show if the payment list can't load.
             onlinePayments = (try? await model.payments(propertyId: propertyId)) ?? []
+            autopay = try? await model.recurring(propertyId: propertyId)
             summary = loaded
             #if DEBUG
             if openCheckout, loaded.onlinePayments == "available" {
                 openCheckout = false
                 paying = true
+            }
+            if openAutopay {
+                openAutopay = false
+                showingAutopay = true
             }
             #endif
             transactions = page.transactions
@@ -139,6 +160,11 @@ struct PaymentsView: View {
             summary = nil
             transactions = []
         }
+    }
+
+    private func reloadAutopay() async {
+        guard let propertyId = property?.id else { return }
+        if let loaded = try? await model.recurring(propertyId: propertyId) { autopay = loaded }
     }
 
     private func loadMore() {
@@ -293,6 +319,47 @@ struct BalanceCard: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(color.opacity(0.12), in: Capsule())
+    }
+}
+
+/// Autopay on the Payments tab: on, paused or waiting for approval, with the next payment; or an
+/// offer to set it up. Opens the autopay screen.
+private struct AutopayRow: View {
+    let autopay: RecurringResponse
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .foregroundStyle(.tint)
+                .frame(width: 40, height: 40)
+                .background(.tint.opacity(0.1), in: .rect(cornerRadius: 8))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Autopay").font(.subheadline.weight(.semibold))
+                Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            if let plan = autopay.plan {
+                AutopayStatus(status: plan.status)
+            } else {
+                Text("Set up").font(.subheadline).foregroundStyle(.tint)
+            }
+            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var detail: String {
+        guard let plan = autopay.plan else { return "Pay your dues automatically on your HOA's schedule." }
+        let amount = "\(Money.text(plan.totalCents, plan.currency)) \(AutopayView.every(plan.frequency))"
+        switch plan.status {
+        case "active":
+            return plan.nextChargeDate.map { "\(amount) · next \(AutopayView.day($0))" } ?? amount
+        case "needs_approval":
+            return "Not charged until you approve it again."
+        default:
+            return "Paused · \(amount)"
+        }
     }
 }
 
